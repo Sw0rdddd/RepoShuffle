@@ -1,16 +1,18 @@
 # RepoShuffle
 
-重排 Python 实现代码的目录结构，提供 CLI 和 Python API。当前版本 **0.2.0**。
+English | [简体中文](README_zh.md)
 
-- **扁平模式**：每个实现区内的代码集中到同一层；重名使用 `main_1.py`、`main_2.py` 等数字后缀。
-- **随机模式**：先分组再生成目录树，每组约 6 个文件，避免单文件目录和空的中间层；目录依次命名为 `module_1`、`module_2`……，支持固定种子。同名文件可能需要增加分组数。
-- **保留辅助结构**：`tests/`、文档、示例、fixture、资源和项目配置默认不搬迁。
-- **遵循 `.gitignore`**：匹配的文件保留原位、仍复制到输出，不参与打乱。
-- **保持公开 import**：移动的是物理源码，包名、相对导入、动态导入和测试中的模块名通常无需修改。
+Reorganize the directory structure of Python implementation code through a CLI or Python API. Current version: **0.2.0**.
 
-## 安装
+- **Flat mode**: collect code at one level within each implementation area; resolve duplicate names with numeric suffixes such as `main_1.py` and `main_2.py`.
+- **Random mode**: group files before building a directory tree, targeting roughly six files per group and avoiding single-file directories and empty intermediate directories. Directories are named `module_1`, `module_2`, and so on. Supports fixed seeds; duplicate filenames may require more groups.
+- **Preserve auxiliary structure**: keep `tests/`, documentation, examples, fixtures, resources, and project configuration in their original locations by default.
+- **Respect `.gitignore`**: matching files are still copied to the output but remain in place rather than being shuffled.
+- **Keep public imports**: physical source locations change, while package names, relative imports, dynamic imports, and module names in tests usually require no changes.
 
-支持 Python 3.10–3.13。
+## Installation
+
+Supports Python 3.10–3.13.
 
 ```bash
 python -m venv .venv
@@ -25,70 +27,71 @@ source .venv/Scripts/activate
 python -m pip install .
 ```
 
-开发安装：`python -m pip install -e '.[dev]'`。不激活环境也可直接调用 `.venv/Scripts/python.exe`（Windows）或 `.venv/bin/python`（Linux）。
+For development: `python -m pip install -e '.[dev]'`. Without activating the environment, use `.venv/Scripts/python.exe` on Windows or `.venv/bin/python` on Linux.
 
 ## CLI
 
 ```bash
-# 查看识别的包、实现区、保留文件及其原因，不写文件
+# Inspect detected packages, implementation areas, and preserved files with reasons
+# without writing files
 reposhuffle inspect ./demo
 
-# 预览完整布局和静态检查
+# Preview the complete layout and static checks
 reposhuffle shuffle ./demo --mode random --seed 42 --dry-run
 
-# 扁平化实现代码
+# Flatten implementation code
 reposhuffle shuffle ./demo --mode flat
 
-# 随机分组，最大目录深度为 2
+# Randomize groups with a maximum directory depth of 2
 reposhuffle shuffle ./demo --mode random --seed 42 --max-depth 2
 
-# 自定义输出容器；父目录必须存在
+# Choose the output container; its parent directory must exist
 reposhuffle shuffle ./demo --mode random -o ./results/demo-pair
 
-# 限定要移动的实现范围，其余文件仍复制但不移动
+# Limit relocation; other files are still copied but remain in place
 reposhuffle shuffle ./demo --include 'src/mypkg/**' --exclude 'src/mypkg/vendor/**'
 
-# 自定义实现目录，不要求叫 src 或 scripts
+# Select custom implementation directories, not just src or scripts
 reposhuffle shuffle ./demo --include 'backend/**' --include 'lib/**'
 ```
 
-| 参数 | 说明 |
+| Option | Description |
 | --- | --- |
-| `--mode flat\|random` | `shuffle` 默认 `random`；`inspect` 可加此参数查看完整计划 |
-| `--seed 整数` | 固定随机分组与层级；省略则生成并记录 |
-| `--max-depth 1..5` | 随机模式的目录深度上限，默认 `3`；不强制生成多层目录 |
-| `--include 路径或通配符` | 限定实现代码选择范围，可重复；不表示删除范围外文件 |
-| `--exclude 路径或通配符` | 指定保持原位的文件或目录，可重复 |
-| `-o, --output 路径` | 整个配对输出容器的位置；仅用于 `shuffle` |
-| `--dry-run` | 只分析，不创建输出；仅用于 `shuffle` |
-| `--version` / `--help` | 查看版本 / 帮助 |
+| `--mode flat\|random` | Defaults to `random` for `shuffle`; add to `inspect` to view a complete plan |
+| `--seed INTEGER` | Fix the random grouping and hierarchy; generated and recorded if omitted |
+| `--max-depth 1..5` | Maximum depth in random mode, default `3`; does not force multiple levels |
+| `--include PATH_OR_PATTERN` | Limit implementation selection; repeatable; does not delete other files |
+| `--exclude PATH_OR_PATTERN` | Keep matching files or directories in place; repeatable |
+| `-o, --output PATH` | Location of the entire paired output container; `shuffle` only |
+| `--dry-run` | Analyze without creating output; `shuffle` only |
+| `--version` / `--help` | Show the version / help |
 
-也支持 `python -m reposhuffle`。结果为 JSON；退出码 `0` 表示当前操作通过，`2` 表示输入、转换或文件错误。可将 stdout 重定向保存报告。
+You can also use `python -m reposhuffle`. Results are JSON. Exit code `0` means the current operation passed; `2` indicates an input, conversion, or file error. Redirect stdout to save a report.
 
-默认从打包配置、普通包结构和实现目录发现源码，不限于 `src/`、`scripts/`：例如根目录包、单文件模块、`app/`、`backend/`、`lib/`、`tools/`。可在 `pyproject.toml` 的 `[tool.reposhuffle]` 下用 `source-dirs = ["..."]` 明确设置实现区。测试、文档和 fixture 的作用域不会因 `--include` 被意外搬走。
+Source discovery uses packaging configuration, ordinary package structure, and implementation directories. It is not limited to `src/` or `scripts/`: root-level packages, single-file modules, `app/`, `backend/`, `lib/`, and `tools/` are supported layouts. To specify implementation areas explicitly, set `source-dirs = ["..."]` under `[tool.reposhuffle]` in `pyproject.toml`. Using `--include` does not inadvertently relocate test, documentation, or fixture scopes.
 
-默认读取项目内的根级及嵌套 `.gitignore`，支持通配符、目录规则和 `!` 反向规则；即使文件已被 Git 跟踪或使用 `--include` 选中，匹配忽略规则后也不移动。忽略的父目录需先取消忽略，才能重新包含其文件。此行为不依赖安装 Git，也不读取用户全局忽略配置或 `.git/info/exclude`。`inspect` 会以 `matched .gitignore rule` 标记保留原因。虚拟环境、缓存、Git 历史等原有硬排除项仍不复制。
+By default, RepoShuffle reads root and nested `.gitignore` files within the project, supporting wildcards, directory rules, and `!` negation. Matching files remain in place even if tracked by Git or selected with `--include`. An ignored parent directory must be unignored before its files can be re-included. Git does not need to be installed; global ignore configuration and `.git/info/exclude` are not read. `inspect` reports `matched .gitignore rule` as the preservation reason. Existing hard exclusions, such as virtual environments, caches, and Git history, are still not copied.
 
-## 输出与运行
+## Output and execution
 
-默认在输入项目同级创建 `<项目名>-shuffled/`：
+By default, RepoShuffle creates `<project-name>-shuffled/` beside the input project:
 
 ```text
 demo-shuffled/
-├── original/       # 原结构快照
-├── shuffled/       # 重排后的完整项目
-└── manifest.json   # 配置、映射、保留原因、修改摘要、静态检查结果
+├── original/       # Snapshot of the original structure
+├── shuffled/       # Complete reorganized project
+└── manifest.json   # Configuration, mappings, preservation reasons, changes, and static checks
 ```
 
-不覆盖已有目录，输入与输出不能互相包含。不修改输入项目；排除 Git 历史、虚拟环境、缓存和构建产物。
+Existing output directories are never overwritten. Input and output must not contain each other. The input project is not modified; Git history, virtual environments, caches, and build artifacts are excluded.
 
-包内实现放入 `_reposhuffle_code/`：扁平模式直接放文件，随机模式使用编号子目录。包入口会加入小型、自包含的模块路由，不依赖安装 RepoShuffle，不访问原仓库，不修改全局文件系统 API。原模块名仍有效，因此测试中的 import、`mock.patch` 和配置中的入口通常不需要改名。路由表是运行所需文件，包含逻辑模块与实际源码的对应关系。
+Package implementations are placed under `_reposhuffle_code/`: directly in flat mode, or in numbered subdirectories in random mode. Package entry points receive a small, self-contained module router. The output does not require RepoShuffle, does not access the original repository, and does not patch global filesystem APIs. Original module names remain valid, so imports in tests, `mock.patch` targets, and configured entry points usually need no renaming. The routing table is required at runtime and contains the mapping between logical modules and physical source locations.
 
-根包 `__init__.py`、构建时静态读取的版本模块、直接使用 `__file__` 的文件保留在原位并记录原因。资源目录旁向其他代码传入 `__name__` 的文件也保留位置，以兼容由模块身份推导资源根的工厂（例如 Flask Blueprint）。独立脚本在原位置保留薄入口，实际代码移到实现区。资源、空辅助目录和逻辑包资源根保留；迁空的包可能留下不含业务实现的标记文件，确保普通 wheel 安装后资源目录仍存在。测试和文档默认逐字节保留。**“扁平”只指各实现区，不是整个仓库没有目录。**
+Root package `__init__.py` files, version modules read statically during builds, and files that directly use `__file__` remain in place with recorded reasons. Files beside resources that pass `__name__` to other code also retain their locations, supporting factories that derive resource roots from module identity, such as Flask Blueprint. Standalone scripts retain thin entry points at their original locations, with their implementations moved into the implementation area. Resources, empty auxiliary directories, and logical package resource roots are preserved. Packages emptied by relocation may retain marker files containing no business implementation, ensuring their resource directories survive ordinary wheel installation. Tests and documentation are preserved byte-for-byte by default. **“Flat” applies to each implementation area, not to the entire repository.**
 
-支持 `pyproject.toml` 中 setuptools 的具名 `package-dir` 映射；其中显式 `py-modules` 和 `packages` 列表会在需要时加入实现存储包，修改记录保存在清单中。转换后的项目不依赖用于编辑 TOML 的 RepoShuffle 依赖。
+Named setuptools `package-dir` mappings in `pyproject.toml` are supported. Explicit `py-modules` and `packages` lists in that file are extended with implementation storage packages when needed, with changes recorded in the manifest. The converted project does not depend on RepoShuffle's TOML-editing dependencies.
 
-在 `shuffled/` 按原项目方式安装和测试，例如：
+Install and test from `shuffled/` as you would the original project, for example:
 
 ```bash
 cd ./demo-shuffled/shuffled
@@ -96,7 +99,7 @@ python -m pip install -e .
 python -m pytest tests/
 ```
 
-建议使用独立虚拟环境；依赖和实际 pytest 参数仍以原项目要求为准。目录选择和保留文件可从 `inspect` 的 `role`、`reason` 字段查看。
+Use a separate virtual environment. Dependencies and actual pytest arguments still depend on the original project. The `role` and `reason` fields in `inspect` explain selection and preservation decisions.
 
 ## Python API
 
@@ -115,17 +118,17 @@ else:
     report = plan.to_dict()
 ```
 
-不传 `output` 使用同级默认目录。规划只读取文件、在内存生成内容；不会执行目标模块或构建钩子。输入文件、目录清单或计划在验证后变化时拒绝发布，需重新规划。
+Omit `output` to use the default sibling directory. Planning only reads files and renders output in memory; it does not execute target modules or build hooks. Publication is rejected if input files, the directory inventory, or the plan change after validation; build a new plan instead.
 
-## 验证与边界
+## Validation and limitations
 
-转换只进行静态编译、目标和清单检查，**不宣称证明功能等价，也不自动安装目标依赖或执行目标测试**。不再因为常见配置、日志、反射或文件读写 API 的存在而拒绝整个项目。
+Conversion performs static compilation, target checks, and inventory checks only. **It does not prove functional equivalence or automatically install target dependencies or run target tests.** Common configuration files, logging, reflection, and file I/O APIs do not by themselves cause an entire project to be rejected.
 
-目前主要处理 `.py` 实现文件；二进制、资源和辅助文件原位保留。符号链接暂不自动跟随。显式列举源码文件的特殊构建方式、自定义加载器、直接从旧磁盘路径加载源码、类型检查器的静态解析等仍可能需要额外适配，应进行实际验证。内置路由保留逻辑包名，但文件路径和回溯路径会变化；这不是源码加密工具。
+The primary relocation targets are `.py` implementation files; binaries, resources, and auxiliary files remain in place. Symbolic links are not automatically followed. Special builds that explicitly enumerate source files, custom loaders, direct loading from old filesystem paths, and static type-checker resolution may require additional adaptation and should be verified. The built-in router preserves logical package names, but file paths and traceback paths change. This is not a source encryption tool.
 
-已在 Windows / Python 3.13 上验证 Requests、Flask、Rich 的 flat/random 转换和所选核心测试；并不等同于所有版本、平台或完整测试集已经通过。
+Requests, Flask, and Rich have been validated in flat/random modes with selected core tests on Windows / Python 3.13. This does not mean all versions, platforms, or complete test suites have passed.
 
-## 开发
+## Development
 
 ```bash
 python -m pip install -e '.[dev]'
@@ -136,4 +139,4 @@ python -m pytest -q --basetemp=.tmp/pytest
 python -m build --outdir .tmp/dist
 ```
 
-CI 配置 Windows/Linux × Python 3.10–3.13；跨平台结果以实际运行记录为准。
+CI is configured for Windows/Linux × Python 3.10–3.13. Cross-platform results depend on actual CI runs.
