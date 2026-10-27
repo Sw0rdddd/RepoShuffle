@@ -13,8 +13,8 @@ from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path, PurePosixPath
 
-from .models import VERSION, Plan, ShuffleError
-from .scan import digest, read_tree
+from .models import VERSION, Inspection, Plan, ShuffleError
+from .scan import digest, read_inventory
 
 
 def _remove_tree(path: Path) -> None:
@@ -26,17 +26,46 @@ def _remove_tree(path: Path) -> None:
         shutil.rmtree(path, onerror=writable_retry)
 
 
+def _copy_entry(source: Path, target: Path) -> None:
+    if source.is_dir():
+        shutil.copytree(source, target)
+        _remove_tree(source)
+    else:
+        shutil.copy2(source, target)
+        source.unlink()
+
+
 def _publish_entry(source: Path, target: Path) -> None:
     # Windows scanners may hold a directory briefly after its files are written.
     # Retry only sharing/access errors, never replace or merge an existing target.
-    for attempt in range(5):
+    # A scanner can hold a directory for seconds. Retry briefly, then copy
+    # instead of sleeping for a long backoff while the user waits.
+    for attempt in range(8):
         try:
             source.rename(target)
             return
         except PermissionError as exc:
-            if getattr(exc, "winerror", None) not in {5, 32} or attempt == 4:
+            if getattr(exc, "winerror", None) not in {5, 32}:
                 raise
-            time.sleep(0.05 * (2**attempt))
+            if attempt == 7:
+                try:
+                    _copy_entry(source, target)
+                except BaseException:
+                    if target.exists():
+                        _remove_tree(target)
+                    raise
+                return
+            time.sleep(min(0.05 * (2**attempt), 0.25))
+
+
+def _same_inventory(current: Inspection, expected: Inspection) -> bool:
+    return (
+        current.ok
+        and [(f.path, f.sha256, f.size) for f in current.files]
+        == [(f.path, f.sha256, f.size) for f in expected.files]
+        and current.excluded == expected.excluded
+        and current.directories == expected.directories
+    )
 
 
 def apply_plan(plan: Plan, output: str | Path | None = None) -> Path:
@@ -64,14 +93,8 @@ def apply_plan(plan: Plan, output: str | Path | None = None) -> Path:
         raise ShuffleError("Output and input must not contain one another.")
     if not destination.parent.is_dir():
         raise ShuffleError("Output parent directory must already exist.")
-    selection = {key: plan.configuration.get(key) for key in ("include", "exclude")}
-    fresh = read_tree(source, **selection)
-    if (
-        not fresh.ok
-        or fresh.files != plan.inspection.files
-        or fresh.excluded != plan.inspection.excluded
-        or fresh.directories != plan.inspection.directories
-    ):
+    fresh = read_inventory(source)
+    if not _same_inventory(fresh, plan.inspection):
         raise ShuffleError("Input inventory changed since planning; build a new plan.")
     expected_targets = set(plan.mapping.values()) | set(plan.generated)
     if set(plan.contents) != expected_targets:
@@ -87,31 +110,37 @@ def apply_plan(plan: Plan, output: str | Path | None = None) -> Path:
         original.mkdir()
         shuffled.mkdir()
         for directory in plan.inspection.directories:
-            (original / directory).mkdir(parents=True, exist_ok=True)
-        for directory in plan.directories:
-            (shuffled / directory).mkdir(parents=True, exist_ok=True)
+            (original / directory).mkdir()
+        output_directories = set(plan.directories)
+        for relative in plan.contents:
+            output_directories.update(
+                str(parent) for parent in PurePosixPath(relative).parents if str(parent) != "."
+            )
+        for directory in sorted(output_directories):
+            (shuffled / directory).mkdir()
+        modes: dict[str, int] = {}
         for record in plan.inspection.files:
             src = source / record.path
             data = src.read_bytes()
-            if digest(data) != record.sha256 or src.is_symlink():
+            metadata = src.lstat()
+            if digest(data) != record.sha256 or not stat.S_ISREG(metadata.st_mode):
                 raise ShuffleError("Input changed while writing snapshots.")
+            mode = stat.S_IMODE(metadata.st_mode)
             target = original / record.path
-            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
-            target.chmod(stat.S_IMODE(src.stat().st_mode))
+            target.chmod(mode)
+            modes[plan.mapping[record.path]] = mode
+            if record.path in plan.contents:
+                modes[record.path] = mode
         for relative, data in sorted(plan.contents.items()):
             target = shuffled / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
-        for record in plan.inspection.files:
-            mode = stat.S_IMODE((source / record.path).stat().st_mode)
-            (shuffled / plan.mapping[record.path]).chmod(mode)
-            if record.path in plan.contents:
-                (shuffled / record.path).chmod(mode)
+            if relative in modes:
+                target.chmod(modes[relative])
         summary = plan.to_dict()
         summary.update(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "tool_version": VERSION,
                 "environment": {
                     "python": sys.version.split()[0],
@@ -159,13 +188,8 @@ def apply_plan(plan: Plan, output: str | Path | None = None) -> Path:
         (temporary / "manifest.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        final = read_tree(source, **selection)
-        if (
-            not final.ok
-            or final.files != fresh.files
-            or final.excluded != fresh.excluded
-            or final.directories != fresh.directories
-        ):
+        final = read_inventory(source)
+        if not _same_inventory(final, fresh):
             raise ShuffleError("Input changed during publication.")
         # Reserve without replacing another process's output; publish manifest last.
         destination.mkdir()

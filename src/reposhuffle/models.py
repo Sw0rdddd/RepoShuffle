@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,7 @@ class Plan:
     changes: list[dict[str, Any]] = field(default_factory=list)
     entry_commands: list[str] = field(default_factory=list)
     directories: list[str] = field(default_factory=list)
+    layout: dict[str, Any] = field(default_factory=dict)
     _validated: str = field(default="", repr=False)
 
     def _fingerprint(self) -> str:
@@ -108,6 +109,7 @@ class Plan:
             "entry_commands": self.entry_commands,
             "directories": self.directories,
             "input_directories": self.inspection.directories,
+            "layout": self.layout,
             "changes": self.changes,
             "diagnostics": [asdict(d) for d in self.inspection.diagnostics + self.diagnostics],
         }

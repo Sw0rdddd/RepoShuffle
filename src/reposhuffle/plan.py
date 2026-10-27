@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import math
 import random
 import secrets
 from pathlib import Path, PurePosixPath
@@ -19,40 +20,108 @@ def inspect_project(
     return read_tree(Path(source), include=include, exclude=exclude)
 
 
+DEFAULT_COMPLEXITY = 0.7
+_COMPLEXITY_BRANCH = 2.0
+_COMPLEXITY_CAPACITY = (10.0, 4.0)
+
+
+def _capacity(complexity: float) -> int:
+    high, low = _COMPLEXITY_CAPACITY
+    return max(1, round(high + (low - high) * complexity))
+
+
+def _validated_complexity(value: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ShuffleError("complexity must be a finite number between 0 and 1")
+    value = float(value)
+    if not math.isfinite(value) or not 0 <= value <= 1:
+        raise ShuffleError("complexity must be a finite number between 0 and 1")
+    return value
+
+
 class NumberedLayout:
-    def __init__(self, seed: int, depth: int):
+    def __init__(self, seed: int, depth: int, complexity: float):
         self.rng = random.Random(seed)
         self.next_directory = 1
         self.depth = depth
+        self.complexity = complexity
+        self.capacity = _capacity(complexity)
+
+    def _weights(self) -> list[float]:
+        # complexity=0 collapses to depth 1. Higher values favour deeper
+        # levels; the seeded jitter makes the same complexity produce
+        # different trees without hiding the overall trend.
+        ratio = _COMPLEXITY_BRANCH * self.complexity
+        weights = [ratio ** (level - 1) for level in range(1, self.depth + 1)]
+        if self.complexity:
+            jitter = 0.3 * self.complexity
+            weights = [weight * self.rng.uniform(1 - jitter, 1 + jitter) for weight in weights]
+        return weights
+
+    def _quotas(self, count: int) -> list[int]:
+        if count <= 0:
+            return [0] * self.depth
+        weights = self._weights()
+        total = sum(weights)
+        ideals = [count * weight / total for weight in weights]
+        threshold = max(1.0, 0.05 * count)
+        used = max((i + 1 for i, ideal in enumerate(ideals) if ideal >= threshold), default=1)
+        used = min(used, count, self.depth)
+        used_weights = weights[:used]
+        used_total = sum(used_weights)
+        remaining = count - used
+        shares = [remaining * weight / used_total for weight in used_weights]
+        extra = [math.floor(share) for share in shares]
+        left = remaining - sum(extra)
+        order = sorted(range(used), key=lambda i: (shares[i] - extra[i], -i), reverse=True)
+        for index in order[:left]:
+            extra[index] += 1
+        return [1 + amount for amount in extra] + [0] * (self.depth - used)
+
+    def _directories(self, zone: str, quotas: list[int]) -> list[str]:
+        levels: dict[int, list[str]] = {0: [zone]}
+        directories: list[str] = []
+        for depth, amount in enumerate(quotas, start=1):
+            if amount <= 0:
+                break
+            parents = levels[depth - 1]
+            children: list[str] = []
+            child_counts = dict.fromkeys(parents, 0)
+            for _ in range(amount):
+                least = min(child_counts.values())
+                choices = [parent for parent, total in child_counts.items() if total == least]
+                parent = self.rng.choice(choices)
+                directory = f"{parent}/module_{self.next_directory}"
+                self.next_directory += 1
+                child_counts[parent] += 1
+                children.append(directory)
+            directories.extend(children)
+            levels[depth] = children
+        return directories
 
     def targets(self, zone: str, names: dict[str, str]) -> dict[str, str]:
-        # Group first: roughly six files per directory, except where equal file
-        # names require more groups. Every created directory receives real code.
+        if not names:
+            return {}
         families: dict[str, list[str]] = {}
         for path, name in names.items():
             families.setdefault(name.casefold(), []).append(path)
-        count = max(1, (len(names) + 5) // 6, max(map(len, families.values())))
-        directories: list[tuple[str, int]] = []
-        for _ in range(count):
-            parents = [(zone, 0)] * max(1, count // 2)
-            parents.extend((path, depth) for path, depth in directories if depth < self.depth)
-            parent, depth = self.rng.choice(parents)
-            directory = f"{parent}/module_{self.next_directory}"
-            self.next_directory += 1
-            directories.append((directory, depth + 1))
-        loads = [0] * count
-        groups = list(families.values())
-        self.rng.shuffle(groups)
-        groups.sort(key=len, reverse=True)
-        result = {}
-        for family in groups:
-            self.rng.shuffle(family)
-            candidates = list(range(count))
-            self.rng.shuffle(candidates)
-            candidates.sort(key=lambda i: loads[i])
-            for path, index in zip(family, candidates, strict=False):
-                result[path] = f"{directories[index][0]}/{names[path]}"
+        max_family = max(map(len, families.values()))
+        count = max(0, math.ceil(len(names) / self.capacity) - 1, max_family - 1)
+        slots = [zone, *self._directories(zone, self._quotas(count))]
+        loads = [0] * len(slots)
+        used = [set() for _ in slots]
+        result: dict[str, str] = {}
+        for family in sorted(families, key=lambda key: (-len(families[key]), key)):
+            members = list(families[family])
+            self.rng.shuffle(members)
+            for path in members:
+                available = [i for i in range(len(slots)) if family not in used[i]]
+                least = min(loads[i] for i in available)
+                choices = [i for i in available if loads[i] == least]
+                index = self.rng.choice(choices)
+                used[index].add(family)
                 loads[index] += 1
+                result[path] = f"{slots[index]}/{names[path]}"
         return result
 
 
@@ -204,12 +273,78 @@ def _scripts(plan: Plan, layout: NumberedLayout) -> None:
             plan.entry_commands.append("python " + repr(record.path))
 
 
+def _layout_stats(plan: Plan) -> dict[str, object]:
+    moved = [f for f in plan.inspection.files if f.role in {"source", "script"}]
+    files_by_depth: collections.Counter[int] = collections.Counter()
+    directories: dict[int, set[str]] = collections.defaultdict(set)
+    loads: collections.Counter[str] = collections.Counter()
+    zones: set[str] = set()
+    numbered: set[str] = set()
+    for record in moved:
+        target = plan.mapping.get(record.path)
+        if target is None:
+            continue
+        parent = PurePosixPath(target).parent
+        parts = parent.parts
+        zone_index = next(
+            (
+                i
+                for i, part in enumerate(parts)
+                if part.startswith("_reposhuffle") and part.endswith("_code")
+            ),
+            None,
+        )
+        if zone_index is None:
+            depth = 0
+            zones.add(str(parent))
+        else:
+            zone = PurePosixPath(*parts[: zone_index + 1])
+            relative = parts[zone_index + 1 :]
+            depth = len(relative)
+            directory = zone
+            for level, part in enumerate(relative, start=1):
+                directory = directory / part
+                directories[level].add(str(directory))
+                numbered.add(str(directory))
+            zones.add(str(zone))
+        files_by_depth[depth] += 1
+        loads[str(parent)] += 1
+    branches: collections.Counter[str] = collections.Counter()
+    for directory in numbered:
+        parent = str(PurePosixPath(directory).parent)
+        if parent in numbered:
+            branches[parent] += 1
+
+    def summarize(values: list[int]) -> dict[str, object]:
+        if not values:
+            return {"min": 0, "max": 0, "mean": 0.0}
+        return {"min": min(values), "max": max(values), "mean": round(sum(values) / len(values), 2)}
+
+    return {
+        "complexity": plan.configuration.get("complexity"),
+        "max_depth": plan.configuration.get("max_depth"),
+        "files_per_directory_target": plan.configuration.get("files_per_directory_target"),
+        "moved_files": len(moved),
+        "preserved_files": len(plan.inspection.files) - len(moved),
+        "zones": len(zones),
+        "numbered_directories": len(numbered),
+        "files_by_depth": {str(depth): files_by_depth[depth] for depth in sorted(files_by_depth)},
+        "directories_by_depth": {
+            str(depth): len(paths) for depth, paths in sorted(directories.items())
+        },
+        "files_per_directory": summarize(list(loads.values())),
+        "children_per_directory": summarize([branches.get(directory, 0) for directory in numbered]),
+        "root_files": files_by_depth.get(0, 0),
+    }
+
+
 def build_plan(
     source: str | Path,
     *,
     mode: str = "random",
     seed: int | None = None,
     max_depth: int = 3,
+    complexity: float | None = None,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
 ) -> Plan:
@@ -220,48 +355,59 @@ def build_plan(
         raise ShuffleError("max_depth must be an integer between 1 and 5")
     if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool)):
         raise ShuffleError("seed must be an integer")
-    inspection = inspect_project(source, include=include, exclude=exclude)
+    if mode == "random":
+        resolved_complexity = (
+            DEFAULT_COMPLEXITY if complexity is None else _validated_complexity(complexity)
+        )
+    elif complexity is not None:
+        raise ShuffleError("complexity is only valid for random mode")
+    else:
+        resolved_complexity = None
+    capacity = _capacity(resolved_complexity) if resolved_complexity is not None else None
+    contents: dict[str, bytes] = {}
+    inspection = read_tree(Path(source), include=include, exclude=exclude, _contents=contents)
     plan = Plan(
         inspection,
         mode,
         seed if seed is not None else secrets.randbits(64),
         configuration={
             "max_depth": max_depth,
+            "complexity": resolved_complexity,
+            "files_per_directory_target": capacity,
             "include": include,
             "exclude": exclude,
             "strategy": "preserve-logical-modules",
             "scope": "implementation-only",
-            "layout_version": 2,
-            "random_group_target": 6,
+            "layout_version": 3,
             "respect_gitignore": True,
         },
     )
     if not plan.ok:
         return plan
+    # Render the exact bytes that were analyzed and hashed. apply_plan rechecks
+    # the input before and after writing; no cross-operation cache is used.
+    plan.contents = contents
     for record in inspection.files:
-        data = (inspection.source / record.path).read_bytes()
-        if digest(data) != record.sha256:
-            raise ShuffleError(f"Input changed during planning: {record.path}")
         plan.mapping[record.path] = record.path
-        plan.contents[record.path] = data
         if record.module:
             plan.modules[record.module] = record.module
     populated = {
         str(parent) for record in inspection.files for parent in PurePosixPath(record.path).parents
     }
     plan.directories = [path for path in inspection.directories if path not in populated]
-    layout = NumberedLayout(plan.seed, max_depth)
+    layout = NumberedLayout(plan.seed, max_depth, resolved_complexity or 0.0)
     try:
         for name, root in inspection.packages.items():
             _package(plan, name, root, layout)
         _scripts(plan, layout)
         include_storage_packages(plan)
         plan.directories = sorted(set(plan.directories))
+        plan.layout = _layout_stats(plan)
         changed = {c["target"] for c in plan.changes if c["kind"] == "move"}
         changed.update(
             c["path"]
             for c in plan.changes
-            if c["kind"] in {"package-bootstrap", "build-configuration"}
+            if c["kind"] in {"package-bootstrap", "build-configuration", "setup-configuration"}
         )
         changed.update(plan.generated)
         for path in changed:

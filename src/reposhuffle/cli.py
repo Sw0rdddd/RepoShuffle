@@ -29,7 +29,18 @@ def parser() -> argparse.ArgumentParser:
         help="Also render and statically validate this layout in memory.",
     )
     inspect.add_argument("--seed", type=int)
-    inspect.add_argument("--max-depth", type=int, default=3)
+    inspect.add_argument(
+        "--max-depth",
+        type=int,
+        default=3,
+        help="Maximum random-layout depth, 1–5 (default: 3); complexity decides how much is used.",
+    )
+    inspect.add_argument(
+        "--complexity",
+        type=float,
+        default=None,
+        help="Random layout complexity from 0 (simplest) to 1 (most complex); default: 0.7.",
+    )
     shuffle = commands.add_parser("shuffle", help="Plan, validate and publish paired snapshots.")
     shuffle.add_argument("source", type=Path)
     shuffle.add_argument("--mode", choices=("flat", "random"), default="random")
@@ -37,7 +48,16 @@ def parser() -> argparse.ArgumentParser:
         "--seed", type=int, help="Integer seed; omitted seeds are generated and reported."
     )
     shuffle.add_argument(
-        "--max-depth", type=int, default=3, help="Random layout depth, 1–5 (default: 3)."
+        "--max-depth",
+        type=int,
+        default=3,
+        help="Maximum random-layout depth, 1–5 (default: 3); complexity decides how much is used.",
+    )
+    shuffle.add_argument(
+        "--complexity",
+        type=float,
+        default=None,
+        help="Random layout complexity from 0 (simplest) to 1 (most complex); default: 0.7.",
     )
     shuffle.add_argument(
         "-o",
@@ -66,6 +86,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         if args.command == "inspect" and args.mode is None:
+            if args.complexity is not None:
+                raise ShuffleError(
+                    "--complexity requires --mode random; discovery-only inspect does not use it."
+                )
             result = inspect_project(args.source, include=args.include, exclude=args.exclude)
             payload = result.to_dict()
             payload["scope"] = "discovery-only; use --mode for full transformation feasibility"
@@ -75,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
                 mode=args.mode,
                 seed=args.seed,
                 max_depth=args.max_depth,
+                complexity=args.complexity,
                 include=args.include,
                 exclude=args.exclude,
             )

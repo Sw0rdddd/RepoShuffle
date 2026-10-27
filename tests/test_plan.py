@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import PurePosixPath
 
 import pytest
@@ -96,13 +97,16 @@ def test_random_numbered_directory_names(project, seed):
     plan = build_plan(source, seed=seed)
     assert plan.ok
     names = set()
+    depths = set()
     for record in plan.inspection.files:
         if record.role == "source":
             parts = PurePosixPath(plan.mapping[record.path]).parts
             numbered = [part for part in parts if part.startswith("module_")]
-            assert 1 <= len(numbered) <= 3
+            assert 0 <= len(numbered) <= 3
+            depths.add(len(numbered))
             names.update(numbered)
     assert names == {f"module_{i}" for i in range(1, len(names) + 1)}
+    assert depths == {0, 1}
 
 
 @pytest.mark.parametrize("count", [1, 3, 6, 7, 17, 78])
@@ -120,17 +124,22 @@ def test_random_groups_are_dense_without_empty_intermediate_directories(project,
         for f in plan.inspection.files
         if f.role == "source"
     )
-    assert len(occupancy) == (count + 5) // 6
+    assert len(occupancy) == math.ceil(count / 6)
     assert max(occupancy.values()) - min(occupancy.values()) <= 1
     if count > 1:
         assert min(occupancy.values()) >= 2
+    assert any(str(path).endswith("_reposhuffle_code") for path in occupancy)
     directories = {
         str(parent)
         for target in plan.mapping.values()
         for parent in PurePosixPath(target).parents
         if parent.name.startswith("module_")
     }
-    assert directories == {str(path) for path in occupancy}
+    numbered = {str(path) for path in occupancy if path.name.startswith("module_")}
+    assert directories == numbered
+    for path in numbered:
+        parent = str(PurePosixPath(path).parent)
+        assert parent in {str(key) for key in occupancy}
 
 
 def test_dense_groups_keep_equal_filenames_separate(project):
@@ -224,6 +233,55 @@ def test_explicit_source_root_in_project_configuration(project):
     assert plan.mapping["implementation/widget/worker.py"] != "implementation/widget/worker.py"
     assert plan.mapping["implementation/tool.py"] != "implementation/tool.py"
     assert plan.mapping["tests/test_worker.py"] == "tests/test_worker.py"
+
+
+def test_explicit_find_where_has_one_logical_root(project):
+    source = project(
+        {
+            "pyproject.toml": "[tool.setuptools.packages.find]\nwhere=['lib']\n",
+            "lib/demo/__init__.py": "",
+            "lib/demo/worker.py": "VALUE=1\n",
+        }
+    )
+    inspection = inspect_project(source)
+    assert inspection.packages == {"demo": "lib/demo"}
+    assert not any(name.startswith("lib.") for name in inspection.packages)
+
+
+def test_only_generated_build_outputs_are_excluded(project):
+    source = project(
+        {
+            "main.py": "pass\n",
+            "build/lib/generated.py": "VALUE=1\n",
+            "dist/demo.whl": b"wheel",
+            "doc/build/guide.rst": "guide",
+            "doc/build/source.py": "VALUE=2\n",
+        }
+    )
+    inspection = inspect_project(source)
+    assert "build/" in inspection.excluded
+    assert "dist/" in inspection.excluded
+    assert "doc/build/source.py" in {record.path for record in inspection.files}
+
+
+def test_nested_projects_are_preserved_without_parsing_their_tools(project):
+    source = project(
+        {
+            "demo/__init__.py": "",
+            "demo/worker.py": "VALUE=1\n",
+            "vendor/pyproject.toml": "[project]\nname='vendor'\nversion='1'\n",
+            "vendor/run_tests.py": "await main()\n",
+        }
+    )
+    inspection = inspect_project(source)
+    assert inspection.ok, inspection.to_dict()
+    records = {record.path: record for record in inspection.files}
+    assert records["vendor/run_tests.py"].role == "preserved"
+    assert records["vendor/run_tests.py"].reason == "nested project"
+    plan = build_plan(source, seed=1)
+    assert plan.ok, plan.to_dict()
+    assert plan.mapping["vendor/run_tests.py"] == "vendor/run_tests.py"
+    assert plan.mapping["demo/worker.py"] != "demo/worker.py"
 
 
 def test_cache_and_vcs_files_excluded(project):

@@ -120,9 +120,12 @@ def test_generated_manifest_contains_actual_checks(project):
     source = project({"main.py": "pass\n"})
     output = apply_plan(build_plan(source))
     report = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert report["tool_version"] == "0.2.0"
+    assert report["tool_version"] == "0.3.0"
+    assert report["schema_version"] == 3
     assert report["runtime_validation"]["status"] == "not-run"
     assert report["configuration"]["scope"] == "implementation-only"
+    assert report["configuration"]["complexity"] == 0.7
+    assert report["layout"]["complexity"] == 0.7
     assert "static-dependency-reachability" not in report["static_validation"]["checks"]
 
 

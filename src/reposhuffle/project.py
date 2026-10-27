@@ -6,12 +6,14 @@ import fnmatch
 import keyword
 from pathlib import Path, PurePosixPath
 
+import libcst as cst
+
 try:
     import tomllib
 except ImportError:  # Python 3.10
     import tomli as tomllib
 
-from .models import Plan, ShuffleError
+from .models import Diagnostic, Plan, ShuffleError
 
 PRESERVED_DIRS = {
     "tests",
@@ -67,12 +69,20 @@ def discover(
         if not path.is_relative_to(source) or not path.is_dir():
             raise ShuffleError(f"Package directory must exist inside the project: {raw}")
         mapped[path] = name
-    bases = list(find.get("where", []))
-    bases += [
-        setuptools.get("package-dir", {}).get("", "src" if (source / "src").is_dir() else ".")
-    ]
+    configured_where = list(find.get("where", [])) if isinstance(find, dict) else []
     explicit = tools.get("poetry", {}).get("packages", [])
-    bases += [item.get("from", ".") for item in explicit]
+    if configured_where:
+        # An explicit setuptools source root is authoritative. Adding the
+        # default root as well would expose the same directory as both
+        # `pkg` and a container-prefixed `lib.pkg`.
+        bases = configured_where
+    elif package_dirs:
+        default = package_dirs.get("")
+        bases = [default] if default else []
+    elif explicit:
+        bases = [item.get("from", ".") for item in explicit]
+    else:
+        bases = ["src" if (source / "src").is_dir() else "."]
     requested = source_dirs or tools.get("reposhuffle", {}).get("source-dirs")
     packages: dict[str, str] = {}
     scripts: list[str] = []
@@ -122,10 +132,19 @@ def discover(
                 package(path, name)
             else:
                 walk_packages(path, name + ".")
+        roots: list[Path] = []
         for base in dict.fromkeys(bases):
             path = (source / base).resolve()
             if not path.is_relative_to(source):
                 raise ShuffleError("Packaging source root escapes the project")
+            roots.append(path)
+        roots.sort(key=lambda path: len(path.parts))
+        selected: list[Path] = []
+        for path in roots:
+            if any(path.is_relative_to(root) for root in selected):
+                continue
+            selected.append(path)
+        for path in selected:
             if path not in mapped:
                 walk_packages(path)
         scripts = ["."] + [
@@ -170,20 +189,15 @@ def discover(
     return dict(sorted(packages.items())), sorted(set(scripts)), anchors
 
 
-def include_storage_packages(plan: Plan) -> None:
-    """Extend explicit setuptools lists; automatic discovery already sees storage."""
-    config = read_config(plan.inspection.source)
-    backend = config.get("build-system", {}).get("build-backend", "setuptools.build_meta")
-    settings = config.get("tool", {}).get("setuptools", {})
-    declared = settings.get("packages")
-    modules = settings.get("py-modules", [])
-    if not backend.startswith("setuptools.") or not (isinstance(declared, list) or modules):
-        return
-    storage = {
+def _storage_directories(plan: Plan) -> set[PurePosixPath]:
+    return {
         PurePosixPath(path).parent
         for path, reason in plan.generated.items()
         if reason == "implementation storage package"
     }
+
+
+def _logical_storage_packages(plan: Plan, storage: set[PurePosixPath]) -> set[str]:
     additions = set()
     for directory in storage:
         owners = [
@@ -194,20 +208,98 @@ def include_storage_packages(plan: Plan) -> None:
         if owners:
             name, root = max(owners, key=lambda item: len(item[1].parts))
             additions.add(".".join((name, *directory.relative_to(root).parts)))
-    base = PurePosixPath(settings.get("package-dir", {}).get("", "."))
-    for module in modules:
-        source = str(base / (module.replace(".", "/") + ".py"))
-        target = PurePosixPath(plan.mapping.get(source, source))
-        ancestors = [directory for directory in storage if target.is_relative_to(directory)]
-        if not ancestors:
-            continue
-        zone = min(ancestors, key=lambda path: len(path.parts))
-        additions.update(
-            ".".join(directory.relative_to(base).parts)
-            for directory in storage
-            if directory.is_relative_to(zone) and directory.is_relative_to(base)
+    return additions
+
+
+def _include_setup_packages(plan: Plan, additions: set[str]) -> None:
+    if not additions or "setup.py" not in plan.contents:
+        return
+    data = plan.contents["setup.py"]
+    try:
+        module = cst.parse_module(data)
+    except (cst.ParserSyntaxError, UnicodeError) as exc:
+        plan.diagnostics.append(Diagnostic("SETUP_SYNTAX", "setup.py", str(exc)))
+        return
+    name = "_reposhuffle_storage_packages"
+    while name in data.decode("utf-8"):
+        name += "_"
+    changed = False
+
+    class SetupTransformer(cst.CSTTransformer):
+        def leave_Call(self, original_node, updated_node):
+            nonlocal changed
+            if not (
+                isinstance(original_node.func, cst.Name) and original_node.func.value == "setup"
+            ):
+                return updated_node
+            arguments = []
+            for argument in updated_node.args:
+                if argument.keyword and argument.keyword.value == "packages":
+                    value = cst.BinaryOperation(
+                        left=cst.parse_expression(f"({module.code_for_node(argument.value)})"),
+                        operator=cst.Add(),
+                        right=cst.Name(name),
+                    )
+                    argument = argument.with_changes(value=value)
+                    changed = True
+                arguments.append(argument)
+            return updated_node.with_changes(args=arguments)
+
+    transformed = module.visit(SetupTransformer())
+    if not changed:
+        return
+    assignment = cst.parse_statement(f"{name} = {sorted(additions)!r}\n")
+    body = list(transformed.body)
+    offset = 0
+    if body and isinstance(body[0], cst.SimpleStatementLine):
+        first = body[0].body[0]
+        if isinstance(first, cst.Expr) and isinstance(
+            first.value, (cst.SimpleString, cst.ConcatenatedString)
+        ):
+            offset = 1
+    while (
+        offset < len(body)
+        and isinstance(body[offset], cst.SimpleStatementLine)
+        and all(
+            isinstance(node, cst.ImportFrom)
+            and cst.helpers.get_full_name_for_node(node.module) == "__future__"
+            for node in body[offset].body
         )
-    if not additions:
+    ):
+        offset += 1
+    plan.contents["setup.py"] = transformed.with_changes(
+        body=body[:offset] + [assignment] + body[offset:]
+    ).bytes
+    plan.changes.append({"kind": "setup-configuration", "path": "setup.py"})
+
+
+def include_storage_packages(plan: Plan) -> None:
+    """Extend explicit setuptools lists; automatic discovery already sees storage."""
+    config = read_config(plan.inspection.source)
+    backend = config.get("build-system", {}).get("build-backend", "setuptools.build_meta")
+    settings = config.get("tool", {}).get("setuptools", {})
+    declared = settings.get("packages")
+    modules = settings.get("py-modules", [])
+    storage = _storage_directories(plan)
+    additions = _logical_storage_packages(plan, storage)
+    if backend.startswith("setuptools.") and (isinstance(declared, list) or modules):
+        base = PurePosixPath(settings.get("package-dir", {}).get("", "."))
+        for module in modules:
+            source = str(base / (module.replace(".", "/") + ".py"))
+            target = PurePosixPath(plan.mapping.get(source, source))
+            ancestors = [directory for directory in storage if target.is_relative_to(directory)]
+            if not ancestors:
+                continue
+            zone = min(ancestors, key=lambda path: len(path.parts))
+            additions.update(
+                ".".join(directory.relative_to(base).parts)
+                for directory in storage
+                if directory.is_relative_to(zone) and directory.is_relative_to(base)
+            )
+    _include_setup_packages(plan, additions)
+    if not additions or not backend.startswith("setuptools."):
+        return
+    if not (isinstance(declared, list) or modules):
         return
     import tomlkit
 

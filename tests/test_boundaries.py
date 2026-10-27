@@ -63,6 +63,25 @@ def test_directory_inventory_changes_invalidate_plan(project):
         apply_plan(plan)
 
 
+def test_subpackage_initializer_and_compiled_fallback_stay(project, run_module):
+    source = project(
+        {
+            "demo/__init__.py": "",
+            "demo/sub/__init__.py": "FLAG=1\n",
+            "demo/sub/worker.py": "VALUE=2\n",
+            "demo/sub/_row_cy.py": "VALUE=3\n",
+            "main.py": "from demo.sub import FLAG\nfrom demo.sub.worker import VALUE\nprint(FLAG, VALUE)\n",
+        }
+    )
+    plan = build_plan(source, mode="random", seed=1)
+    assert plan.ok, plan.to_dict()
+    assert plan.mapping["demo/sub/__init__.py"] == "demo/sub/__init__.py"
+    assert plan.mapping["demo/sub/_row_cy.py"] == "demo/sub/_row_cy.py"
+    assert plan.mapping["demo/sub/worker.py"] != "demo/sub/worker.py"
+    output = apply_plan(plan)
+    assert run_module(output / "shuffled", "main") == "1 2\n"
+
+
 @pytest.mark.parametrize("mode", ["flat", "random"])
 def test_named_package_directory_mapping(project, run_module, mode):
     source = project(
@@ -76,6 +95,58 @@ def test_named_package_directory_mapping(project, run_module, mode):
     assert plan.inspection.packages == {"demo": "lib"}
     assert plan.modules["demo.worker"] == "demo.worker"
     apply_plan(plan)
+
+
+@pytest.mark.parametrize("mode", ["flat", "random"])
+def test_setup_py_packages_include_storage(project, tmp_path, mode):
+    source = project(
+        {
+            "setup.py": (
+                "from setuptools import setup\n"
+                "setup(name='setup-demo', version='1.0', packages=['demo'])\n"
+            ),
+            "demo/__init__.py": "from .worker import VALUE\n",
+            "demo/worker.py": "VALUE=7\n",
+        }
+    )
+    plan = build_plan(source, mode=mode, seed=42)
+    assert plan.ok, plan.to_dict()
+    assert "_reposhuffle_storage_packages" in plan.contents["setup.py"].decode()
+    output = apply_plan(plan)
+    wheels = tmp_path / "wheels"
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    build = subprocess.run(
+        [sys.executable, "-B", "-m", "build", "--wheel", "--no-isolation", "--outdir", str(wheels)],
+        cwd=output / "shuffled",
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    import zipfile
+
+    site = tmp_path / "site"
+    with zipfile.ZipFile(next(wheels.glob("*.whl"))) as archive:
+        archive.extractall(site)
+    code = (
+        "import sys; sys.path.insert(0, "
+        + repr(str(site))
+        + "); import demo; assert demo.VALUE==7; print(demo.__file__)"
+    )
+    check = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", code],
+        cwd=tmp_path,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert check.returncode == 0, check.stdout + check.stderr
+    assert str(site) in check.stdout
 
 
 @pytest.mark.parametrize("mode", ["flat", "random"])
