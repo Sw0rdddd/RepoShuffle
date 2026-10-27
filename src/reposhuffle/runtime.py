@@ -12,8 +12,12 @@ import importlib.machinery
 import importlib.util
 import pkgutil
 import sys
-from importlib.resources.readers import MultiplexedPath
 from pathlib import Path
+
+try:
+    from importlib.resources.readers import MultiplexedPath
+except ImportError:  # Python 3.10
+    from importlib.readers import MultiplexedPath
 
 try:
     from importlib.resources.abc import TraversableResources

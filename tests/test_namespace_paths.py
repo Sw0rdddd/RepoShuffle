@@ -5,6 +5,13 @@ import pytest
 from reposhuffle import apply_plan, build_plan
 
 
+def test_resource_reader_imports_on_supported_python(tmp_path):
+    from reposhuffle.runtime import ResourceReader
+
+    (tmp_path / "data.txt").write_text("resource", encoding="utf-8")
+    assert ResourceReader(tmp_path).files().joinpath("data.txt").read_text() == "resource"
+
+
 @pytest.mark.parametrize("late", [False, True])
 def test_routed_namespace_keeps_external_portions_and_resources(project, run_module, late):
     source = project(

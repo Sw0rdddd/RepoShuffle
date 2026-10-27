@@ -100,6 +100,15 @@ def python_in(environment: Path) -> Path:
     return environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
+def initialize_submodules(source: Path, timeout: int) -> None:
+    if (source / ".gitmodules").is_file():
+        subprocess.run(
+            ["git", "-C", str(source), "submodule", "update", "--init", "--recursive"],
+            check=True,
+            timeout=timeout,
+        )
+
+
 def evaluate(name: str, profile: dict, args) -> dict:
     source = (args.repos_root / name).resolve()
     if not source.exists() and args.clone:
@@ -123,6 +132,7 @@ def evaluate(name: str, profile: dict, args) -> dict:
         ["git", "-C", str(source), "status", "--porcelain", "--untracked-files=no"], text=True
     ).strip():
         raise ValueError(f"{name}: tracked upstream files are modified")
+    initialize_submodules(source, args.timeout)
     work = args.output / name
     work.mkdir()
     environment = work / "environment"
@@ -284,6 +294,8 @@ def evaluate(name: str, profile: dict, args) -> dict:
                         "-q",
                         *profile["tests"],
                         "--tb=short",
+                        f"--rootdir={snapshot}",
+                        f"--confcutdir={snapshot}",
                         "-p",
                         "no:cacheprovider",
                         f"--basetemp={work / (snapshot_name + '-temp')}",
@@ -330,6 +342,10 @@ def acceptable(report: dict) -> bool:
     baseline = report.get("original", {})
     if baseline.get("exit") != 0 or baseline.get("source_import", {}).get("exit") != 0:
         return False
+    if "wheel" in baseline and any(
+        baseline.get(key, {}).get("exit") != 0 for key in ("wheel", "install", "installed_import")
+    ):
+        return False
     for variant in report["variants"].values():
         result = variant.get("tests", {})
         if (
@@ -339,6 +355,8 @@ def acceptable(report: dict) -> bool:
         ):
             return False
         comparison = variant.get("comparison", {})
+        if not comparison.get("comparable") and comparison.get("summary_equal") is not True:
+            return False
         if comparison.get("summary_equal") is False:
             return False
         if comparison.get("comparable") and any(

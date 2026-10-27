@@ -50,6 +50,114 @@ def test_moved_doctest_classname_uses_exact_module_mapping(tmp_path):
     assert "new.module::test_new" in result["cases"]
 
 
+def test_acceptable_requires_baseline_artifacts_and_complete_comparison():
+    snapshot = {
+        "exit": 0,
+        "source_import": {"exit": 0},
+        **{name: {"exit": 0} for name in ("wheel", "install", "installed_import")},
+    }
+    comparison = {
+        "comparable": True,
+        **{
+            key: []
+            for key in (
+                "added_nodes",
+                "removed_nodes",
+                "changed_nodes",
+                "new_failures",
+            )
+        },
+    }
+    report = {
+        "setup": {"exit": 0},
+        "original": snapshot,
+        "variants": {"flat-42": {"plan_ok": True, "tests": snapshot, "comparison": comparison}},
+    }
+    assert harness.acceptable(report)
+    report["original"] = {**snapshot, "wheel": {"exit": 1}}
+    assert not harness.acceptable(report)
+    report["original"] = snapshot
+    report["variants"]["flat-42"]["comparison"] = {"comparable": False}
+    assert not harness.acceptable(report)
+
+
+def test_initialize_submodules_only_when_declared(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        harness.subprocess, "run", lambda *args, **kwargs: calls.append((args, kwargs))
+    )
+    harness.initialize_submodules(tmp_path, 30)
+    assert not calls
+    (tmp_path / ".gitmodules").write_text('[submodule "fixtures"]\n', encoding="utf-8")
+    harness.initialize_submodules(tmp_path, 30)
+    assert calls == [
+        (
+            (["git", "-C", str(tmp_path), "submodule", "update", "--init", "--recursive"],),
+            {"check": True, "timeout": 30},
+        )
+    ]
+
+
+def test_evaluation_isolates_pytest_collection_root(tmp_path, monkeypatch):
+    source = tmp_path / "sources" / "demo"
+    (source / "pkg").mkdir(parents=True)
+    (source / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (source / "pkg" / "worker.py").write_text("value = 7\n", encoding="utf-8")
+    profiles = tmp_path / "profiles.json"
+    profiles.write_text(
+        json.dumps(
+            {
+                "demo": {
+                    "revision": "a" * 40,
+                    "module": "pkg",
+                    "tests": ["tests"],
+                    "dependencies": [],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        harness.subprocess,
+        "check_output",
+        lambda command, **kwargs: "a" * 40 if command[-1] == "HEAD" else "",
+    )
+    monkeypatch.setattr(harness.venv.EnvBuilder, "create", lambda *args: None)
+    snapshots = []
+
+    def run(command, cwd, log, env, timeout):
+        if "pytest" in command:
+            assert f"--rootdir={cwd}" in command
+            assert f"--confcutdir={cwd}" in command
+            snapshots.append(cwd.name)
+            xml = next(arg.split("=", 1)[1] for arg in command if arg.startswith("--junitxml="))
+            Path(xml).write_text(
+                '<testsuite><testcase classname="tests.demo" name="test_value"/></testsuite>',
+                encoding="utf-8",
+            )
+        return {"exit": 0, "timeout": False, "seconds": 0}
+
+    monkeypatch.setattr(harness, "run", run)
+    assert (
+        harness.main(
+            [
+                "--profiles",
+                str(profiles),
+                "--repos-root",
+                str(tmp_path / "sources"),
+                "--output",
+                str(tmp_path / "results"),
+                "--modes",
+                "flat",
+                "--seeds",
+                "42",
+            ]
+        )
+        == 0
+    )
+    assert snapshots == ["original", "shuffled"]
+
+
 def test_append_keeps_prior_results_and_never_replaces_projects(tmp_path, monkeypatch):
     profiles = tmp_path / "profiles.json"
     profiles.write_text(

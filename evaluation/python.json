@@ -1,58 +1,4 @@
 {
-  "requests": {
-    "url": "https://github.com/psf/requests.git",
-    "revision": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
-    "module": "requests",
-    "source_paths": [
-      "src"
-    ],
-    "tests": [
-      "tests/test_utils.py",
-      "tests/test_structures.py",
-      "tests/test_hooks.py",
-      "tests/test_packages.py",
-      "tests/test_help.py",
-      "tests/test_adapters.py"
-    ],
-    "dependencies": [
-      "blinker==1.9.0",
-      "brotlicffi==1.2.1.0",
-      "certifi==2026.10.23",
-      "cffi==2.1.1",
-      "charset-normalizer==3.5.2",
-      "click==8.5.0",
-      "colorama==0.4.6",
-      "coverage==7.17.0",
-      "cryptography==50.0.2",
-      "decorator==5.3.1",
-      "execnet==2.1.2",
-      "Flask==3.1.3",
-      "greenlet==3.5.6",
-      "httpbin==0.10.4",
-      "idna==3.20",
-      "iniconfig==2.3.1",
-      "itsdangerous==2.2.0",
-      "Jinja2==3.1.6",
-      "MarkupSafe==3.0.4",
-      "packaging==26.3",
-      "pluggy==1.7.0",
-      "pycparser==3.12",
-      "Pygments==2.21.0",
-      "PySocks==1.7.1",
-      "pytest==9.1.1",
-      "pytest-cov==7.1.0",
-      "pytest-httpbin==2.1.0",
-      "pytest-mock==3.17.0",
-      "pytest-xdist==3.8.0",
-      "six==1.17.0",
-      "trustme==1.2.1",
-      "urllib3==2.8.0",
-      "Werkzeug==3.1.9",
-      "build>=1",
-      "wheel",
-      "setuptools>=68"
-    ]
-  },
   "flask": {
     "url": "https://github.com/pallets/flask.git",
     "revision": "d086db856be187255b8ec61ef409357393020f32",
@@ -169,8 +115,6 @@
       "test/sql",
       "test/orm/test_unitofwork.py",
       "--db",
-      "sqlite",
-      "--db",
       "sqlite"
     ],
     "dependencies": [
@@ -188,24 +132,6 @@
       "wheel",
       "setuptools>=68"
     ]
-  },
-  "django": {
-    "url": "https://github.com/django/django.git",
-    "revision": "e9414948e9660ee4c167eebb187710ee3031d9d8",
-    "module": "django",
-    "source_paths": [],
-    "tests": [
-      "utils_tests"
-    ],
-    "dependencies": [
-      "asgiref==3.13.0",
-      "sqlparse==0.6.0",
-      "tzdata==2026.5",
-      "build>=1",
-      "wheel",
-      "setuptools>=68"
-    ],
-    "runner": "django"
   },
   "sphinx": {
     "url": "https://github.com/sphinx-doc/sphinx.git",
@@ -250,71 +176,104 @@
       "setuptools>=68"
     ]
   },
-  "boltons": {
-    "url": "https://github.com/mahmoud/boltons.git",
-    "revision": "d31d821d56c8f7756af9c30a864077f2e5855321",
-    "module": "boltons",
-    "source_paths": [],
-    "tests": [
-      "--doctest-modules",
-      "boltons",
-      "tests"
-    ],
-    "dependencies": [
-      "colorama==0.4.6",
-      "iniconfig==2.3.1",
-      "packaging==26.3",
-      "pluggy==1.7.0",
-      "Pygments==2.21.0",
-      "pytest==9.1.1",
-      "python-dateutil==3.0.0",
-      "pytz==2026.5",
-      "six==1.17.0",
-      "tzdata==2026.5",
-      "build>=1",
-      "wheel",
-      "setuptools>=68"
-    ]
-  },
-  "click": {
-    "url": "https://github.com/pallets/click.git",
-    "revision": "fd183b2ced1cb5857784fe7fb22f4982f671f098",
-    "module": "click",
-    "source_paths": ["src"],
-    "tests": ["tests"],
-    "dependencies": [
-      "build==1.6.1", "colorama==0.4.6", "iniconfig==2.3.1", "packaging==26.3",
-      "pluggy==1.7.0", "pyproject_hooks==1.3.3", "pytest==8.3.5",
-      "setuptools==84.2.1", "wheel==0.48.0"
-    ]
-  },
   "attrs": {
     "url": "https://github.com/python-attrs/attrs.git",
     "revision": "3dca08ce5bbe673d7df25f44f3dda92505d1043d",
     "module": "attrs",
-    "source_paths": ["src"],
-    "tests": ["tests"],
-    "env": {"SETUPTOOLS_SCM_PRETEND_VERSION": "25.3.0"},
+    "source_paths": [
+      "src"
+    ],
+    "tests": [
+      "tests"
+    ],
+    "env": {
+      "SETUPTOOLS_SCM_PRETEND_VERSION": "25.3.0"
+    },
     "dependencies": [
-      "build==1.6.1", "cloudpickle==3.1.1", "colorama==0.4.6", "execnet==2.1.2",
-      "hypothesis==6.170.12", "iniconfig==2.3.1", "packaging==26.3", "pluggy==1.7.0",
-      "Pygments==2.21.0", "Pympler==1.1", "pyproject_hooks==1.3.3", "pytest==9.1.1",
-      "pytest-xdist==3.8.0", "pywin32==312; sys_platform == 'win32'",
-      "setuptools==84.2.1", "sortedcontainers==2.4.0", "wheel==0.48.0"
+      "build==1.6.1",
+      "cloudpickle==3.1.1",
+      "colorama==0.4.6",
+      "execnet==2.1.2",
+      "hypothesis==6.170.12",
+      "iniconfig==2.3.1",
+      "packaging==26.3",
+      "pluggy==1.7.0",
+      "Pygments==2.21.0",
+      "Pympler==1.1",
+      "pyproject_hooks==1.3.3",
+      "pytest==9.1.1",
+      "pytest-xdist==3.8.0",
+      "pywin32==312; sys_platform == 'win32'",
+      "setuptools==84.2.1",
+      "sortedcontainers==2.4.0",
+      "wheel==0.48.0"
     ]
   },
   "jinja2": {
     "url": "https://github.com/pallets/jinja.git",
     "revision": "15206881c006c79667fe5154fe80c01c65410679",
     "module": "jinja2",
-    "source_paths": ["src"],
-    "tests": ["tests"],
+    "source_paths": [
+      "src"
+    ],
+    "tests": [
+      "tests"
+    ],
     "dependencies": [
-      "attrs==26.1.0", "babel==2.17.0", "build==1.6.1", "cffi==2.1.1", "colorama==0.4.6",
-      "idna==3.20", "iniconfig==2.3.1", "MarkupSafe==3.0.4", "outcome==1.3.0.post0",
-      "packaging==26.3", "pluggy==1.7.0", "pycparser==3.12", "Pygments==2.21.0",
-      "pyproject_hooks==1.3.3", "pytest==9.1.1", "setuptools==84.2.1", "sniffio==1.3.1",
-      "sortedcontainers==2.4.0", "trio==0.30.0", "wheel==0.48.0"
+      "attrs==26.1.0",
+      "babel==2.17.0",
+      "build==1.6.1",
+      "cffi==2.1.1",
+      "colorama==0.4.6",
+      "idna==3.20",
+      "iniconfig==2.3.1",
+      "MarkupSafe==3.0.4",
+      "outcome==1.3.0.post0",
+      "packaging==26.3",
+      "pluggy==1.7.0",
+      "pycparser==3.12",
+      "Pygments==2.21.0",
+      "pyproject_hooks==1.3.3",
+      "pytest==9.1.1",
+      "setuptools==84.2.1",
+      "sniffio==1.3.1",
+      "sortedcontainers==2.4.0",
+      "trio==0.30.0",
+      "wheel==0.48.0"
+    ]
+  },
+  "tomlkit": {
+    "url": "https://github.com/python-poetry/tomlkit.git",
+    "revision": "8c963db32784623f8fc076ad4ef9b6b01ab0d542",
+    "module": "tomlkit",
+    "source_paths": [],
+    "tests": [
+      "tests"
+    ],
+    "dependencies": [
+      "pytest==8.3.5",
+      "PyYAML==6.0.2",
+      "build==1.6.1",
+      "wheel==0.48.0",
+      "setuptools==84.2.1"
+    ]
+  },
+  "itsdangerous": {
+    "url": "https://github.com/pallets/itsdangerous.git",
+    "revision": "096c8d42545d3b68ea21a4f890fb2b2d8979c0bd",
+    "module": "itsdangerous",
+    "source_paths": [
+      "src"
+    ],
+    "tests": [
+      "tests"
+    ],
+    "dependencies": [
+      "pytest==8.3.5",
+      "freezegun==1.5.1",
+      "build==1.6.1",
+      "wheel==0.48.0",
+      "setuptools==84.2.1"
     ]
   }
 }

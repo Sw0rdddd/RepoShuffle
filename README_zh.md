@@ -2,11 +2,11 @@
 
 **重排 Python 源码结构，保留逻辑导入。**
 
-![Version](https://img.shields.io/badge/version-0.3.2-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.3.3-2563eb?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10–3.13-3776ab?style=flat-square)
 ![Interface](https://img.shields.io/badge/interface-CLI%20%2F%20API-475569?style=flat-square)
 
-[English](README.md) · **简体中文** · [真实仓库测评](docs/evaluation-0.3.2.md) · [局限性](docs/limitations.md)
+[English](README.md) · **简体中文** · [真实仓库测评](docs/evaluation-0.3.3.md) · [局限性](docs/limitations.md)
 
 ---
 
@@ -100,7 +100,11 @@ from reposhuffle import apply_plan, build_plan, inspect_project
 
 inspection = inspect_project("./demo")
 plan = build_plan(
-    "./demo", mode="random", seed=42, max_depth=3, complexity=0.7,
+    "./demo",
+    mode="random",
+    seed=42,
+    max_depth=3,
+    complexity=0.7,
     include=["backend/**", "lib/**"],
     exclude=["backend/vendor/**"],
 )
@@ -120,7 +124,7 @@ API 同样支持 `subproject="services/api"`。`plan.compatibility` 汇总构建
 
 转换仅执行静态编译、目标和清单检查，**不证明功能等价，也不自动安装依赖或运行目标测试**。文件路径和回溯会变化；源码扫描、自定义加载器、特殊构建和类型检查可能需要适配。符号链接不自动跟随；这不是源码加密工具。
 
-12 个真实仓库的对照结果见[测评记录](docs/evaluation-0.3.2.md)，已知失败与未验证范围见[局限性](docs/limitations.md)。
+公开保留 10 个真实仓库的通过集，见[测评记录](docs/evaluation-0.3.3.md)；本地 Windows/Linux 对照已通过，远端 Actions 尚未复验。后续完整真实仓库验证交给 GitHub Actions，已知限制见[局限性](docs/limitations.md)。
 
 ## 开发
 

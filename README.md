@@ -2,11 +2,11 @@
 
 **Reshape Python source trees. Keep logical imports.**
 
-![Version](https://img.shields.io/badge/version-0.3.2-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.3.3-2563eb?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10–3.13-3776ab?style=flat-square)
 ![Interface](https://img.shields.io/badge/interface-CLI%20%2F%20API-475569?style=flat-square)
 
-**English** · [简体中文](README_zh.md) · [Evaluation](docs/evaluation-0.3.2.md) · [Limitations](docs/limitations.md)
+**English** · [简体中文](README_zh.md) · [Evaluation](docs/evaluation-0.3.3.md) · [Limitations](docs/limitations.md)
 
 ---
 
@@ -100,7 +100,11 @@ from reposhuffle import apply_plan, build_plan, inspect_project
 
 inspection = inspect_project("./demo")
 plan = build_plan(
-    "./demo", mode="random", seed=42, max_depth=3, complexity=0.7,
+    "./demo",
+    mode="random",
+    seed=42,
+    max_depth=3,
+    complexity=0.7,
     include=["backend/**", "lib/**"],
     exclude=["backend/vendor/**"],
 )
@@ -120,7 +124,7 @@ The API also accepts `subproject="services/api"`. `plan.compatibility` summarize
 
 Conversion runs static compilation, target checks, and inventory checks. **It does not prove functional equivalence, install dependencies, or run target tests.** File and traceback paths change; source scanning, custom loaders, special builds, and type checking may need adaptation. Symbolic links are not automatically followed. This is not source encryption.
 
-See the [12-repository evaluation](docs/evaluation-0.3.2.md) and [known limitations](docs/limitations.md) for failures and unverified scenarios (both in Chinese).
+See the [10-repository passing suite](docs/evaluation-0.3.3.md) and [known limitations](docs/limitations.md) (both in Chinese). Recorded local Windows/Linux comparisons passed; future full repository validation runs in GitHub Actions. Remote revalidation is pending.
 
 ## Development
 

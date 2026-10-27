@@ -6,5 +6,6 @@ __pycache__/
 .venv/
 .tmp/
 /repos/
+/AGENTS.md
 build/
 dist/
