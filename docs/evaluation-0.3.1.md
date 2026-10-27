@@ -1,48 +1,41 @@
-# RepoShuffle 0.3.1 验证记录
+# 真实仓库测评（0.3.1）
 
-环境：Windows / Python 3.13.13；seed=42，complexity=0.7，max-depth=3；flat 和 random 均使用默认选择范围。
+## 范围与方法
 
-## 工具与跨包功能
+- 环境：Windows、Python 3.13.13；seed=42、complexity=0.7、max-depth=3，flat/random 均使用默认选择范围。
+- 12 个仓库均完成两种模式的转换和静态检查，共 24 份输出；根模块导入已核对实际源码位置。
+- 原版与转换版在独立快照中使用相同依赖和测试命令，不修改上游测试断言。以下结果仅代表所列测试范围，不代表完整项目兼容。
 
-- 完整工具测试：167 passed，1 skipped；跳过项为 Windows 符号链接权限。
-- Ruff 检查、格式检查、sdist/wheel 构建通过；全新环境安装发布 wheel 后 `--version` 为 0.3.1，`pip check` 通过。
-- 覆盖任意名称源码根、多包共享存储、同名文件、跨包和相对导入、动态导入、容器前缀、位置锚点、独立源码根，以及共享存储的 wheel 安装。
-- 本地四层业务样本的 20 个可移动业务文件进入同一共享存储；原版与 random 版各 261 passed。
+## 对照结果
 
-## 真实仓库对照
-
-`repos/` 中 12 个源码仓库均完成 flat/random 转换和静态检查，共 24 份输出；原版与转换版的根模块导入均检查了实际源码位置。测试在生成的 original/shuffled 快照中运行，同一项目共用相同依赖环境及相同测试命令，不修改上游测试断言。
-
-| 仓库 | 实际测试范围 | 原版 | flat | random |
+| 仓库 | 测试范围 | 原版 | flat | random |
 | --- | --- | --- | --- | --- |
-| Requests | utils、structures、hooks、packages、help、adapters 核心集 | 262 passed | 262 passed | 262 passed |
-| Flask | `tests/` | 494 passed | 494 passed | 494 passed |
-| Rich | `tests/` | 984 passed | 984 passed | 984 passed |
-| Lark | `tests/__main__.py` 聚合入口 | 1181 passed | 1181 passed | 1181 passed |
-| Packaging | `tests/`，保留上游默认 property 排除 | 63349 passed | 63349 passed | 63349 passed |
-| SQLAlchemy | `test/base`、`test/sql`、`test/orm/test_unitofwork.py`，SQLite、pure Python | 9468 passed | 9468 passed | 9468 passed |
-| Django | 官方 runner 的 `utils_tests` | 717 run / 49 skipped | 相同 | 相同 |
-| Sphinx | `tests/test_util` | 229 passed | 229 passed | 229 passed |
-| Astroid | `tests/`，保留上游默认 acceptance 排除 | 2461 passed / 5 failed | 2453 passed / 13 failed | 2454 passed / 12 failed |
-| Boltons | `--doctest-modules boltons tests` | 774 passed | 774 passed | 777 passed / 2 failed |
-| SymPy | core 测试、矩阵 `test_matrices.py`、多项式 `test_polytools.py` | 2366 passed | 2313 passed / 53 failed | 2306 passed / 60 failed |
-| Pydantic | `test_main.py` + `test_types.py`；另试单独 `test_types.py` | Windows 栈溢出 | 同样崩溃 | 同样崩溃 |
+| Requests | utils、structures、hooks、packages、help、adapters 核心集 | 262 通过 | 262 通过 | 262 通过 |
+| Flask | `tests/` | 494 通过 | 494 通过 | 494 通过 |
+| Rich | `tests/` | 984 通过 | 984 通过 | 984 通过 |
+| Lark | `tests/__main__.py` 聚合入口 | 1181 通过 | 1181 通过 | 1181 通过 |
+| Packaging | `tests/`，保留默认 property 排除 | 63349 通过 | 63349 通过 | 63349 通过 |
+| SQLAlchemy | `test/base`、`test/sql`、`test/orm/test_unitofwork.py`；SQLite、纯 Python | 9468 通过 | 9468 通过 | 9468 通过 |
+| Django | 官方 runner 的 `utils_tests` | 717 运行 / 49 跳过 | 相同 | 相同 |
+| Sphinx | `tests/test_util` | 229 通过 | 229 通过 | 229 通过 |
+| Astroid | `tests/`，保留默认 acceptance 排除 | 2461 通过 / 5 失败 | 2453 通过 / 13 失败 | 2454 通过 / 12 失败 |
+| Boltons | `--doctest-modules boltons tests` | 774 通过 | 774 通过 | 777 通过 / 2 失败 |
+| SymPy | core、矩阵 `test_matrices.py`、多项式 `test_polytools.py` | 2366 通过 | 2313 通过 / 53 失败 | 2306 通过 / 60 失败 |
+| Pydantic | `test_main.py` + `test_types.py`；另试单独 `test_types.py` | 原生栈溢出 | 同样崩溃 | 同样崩溃 |
 
-通过数不包含 skipped/xfail。Requests 各 1 skipped，Rich 各 23 skipped，Lark 各 148 skipped，Packaging 各 1 skipped/434 deselected，SQLAlchemy 各 386 skipped；Sphinx 各 1 skipped/1 xfailed；SymPy 各 85 skipped/24 xfailed/5 deselected。Django 的 717 run 包含 49 skipped。Astroid 的 skipped/xfail 在三版一致，原版的 5 个失败不计为新增失败。
+通过数不含 skipped/xfail。Requests 各 1 skipped，Rich 各 23 skipped，Lark 各 148 skipped，Packaging 各 1 skipped/434 deselected，SQLAlchemy 各 386 skipped，Sphinx 各 1 skipped/1 xfailed，SymPy 各 85 skipped/24 xfailed/5 deselected。Django 的运行数包含跳过项；Astroid 三版的 skipped/xfail 一致。
 
-## 未解决的兼容性限制
+结论：8 个仓库在所测范围内结果一致；Astroid、Boltons、SymPy 存在转换后新增失败；Pydantic 无法完成对照。原因与适用边界见[局限性](limitations.md)。
 
-- Astroid 的静态模块查找、源码路径推导等测试在 flat/random 分别新增 8/7 个失败。
-- Boltons random 的物理模块扫描额外收集 5 个测试节点；缓存键的物理模块身份、目录遍历 doctest 各失败 1 项。flat 的通过数相同。
-- SymPy 的物理源码遍历会绕过逻辑路由、重复加载实现并影响类型和单例身份；这批测试在转换后出现 53/60 个失败。此前测评也已记录这一限制，本次未修改这些测试或扩大本功能的修复范围。
-- Pydantic 原版和两种转换版在循环验证用例原生栈溢出，退出码 3221225725；单独运行类型测试也在另一个验证默认值用例栈溢出。没有完整 JUnit 结果，不能据此判定测试通过或功能等价。
+## 工具自身验证
 
-初次运行缺失的测试依赖已补齐，受影响范围已重跑；缺失依赖和崩溃前遗留的 XML 不计作最终测试结果。Pydantic 的崩溃保留日志，不用较早的依赖错误 XML 替代。
+- 工具测试：167 通过、1 跳过（Windows 符号链接权限）；Ruff、格式检查、sdist/wheel 构建通过。
+- 全新环境安装发布 wheel 后，版本为 0.3.1，`pip check` 通过。
+- 回归覆盖按源码根跨包共享存储、同名文件、跨包/相对/动态导入、容器前缀、脚本、资源、位置锚点、独立源码根、排除规则及 wheel 隔离安装。
+- 本地四层业务样本的 20 个可移动文件进入共享存储，原版与 random 版各 261 通过。
 
-## 证据与复现边界
+## 证据与复现
 
-本地 `repos/evaluation-source-roots/reports/` 保存提交号、测试命令、依赖列表、日志、JUnit、summary.json 和 final-render-audit.json；测试与转换结果分开记录。旧测评目录未覆盖，上游克隆的已跟踪文件保持干净。
+本地 `repos/evaluation-source-roots/reports/` 保存提交号、命令、依赖、日志、JUnit、`summary.json` 和 `final-render-audit.json`；转换与测试结果分开记录。缺失依赖已补齐并重跑，旧 XML 不作为最终结果；Pydantic 仅保留崩溃日志，不认定通过。
 
-转换快照先于版本号更新生成，清单仍记录开发时的 0.3.0。发布前使用最终 0.3.1 源码重新规划全部 24 份输出，逐项核对映射和清单中的输出字节哈希；版本号字段变化不影响这些运行源码。布局版本为 4，清单 schema 仍为 3。
-
-这轮结果仅覆盖所列 Windows 环境和测试范围；完整框架测试、未安装的可选后端及其他平台不计为本地已验证。
+快照生成时清单版本仍为开发期 0.3.0；发布前已用最终 0.3.1 源码重新规划全部输出，核对映射及输出字节哈希。布局版本为 4，清单 schema 为 3；旧测评未覆盖，上游克隆的已跟踪文件未修改。
