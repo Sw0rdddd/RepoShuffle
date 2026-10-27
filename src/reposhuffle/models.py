@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,7 @@ class Inspection:
     packages: dict[str, str] = field(default_factory=dict)
     script_roots: list[str] = field(default_factory=list)
     directories: list[str] = field(default_factory=list)
+    source_roots: dict[str, str] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -55,6 +56,7 @@ class Inspection:
             "excluded": self.excluded,
             "packages": self.packages,
             "script_roots": self.script_roots,
+            "source_roots": self.source_roots,
             "directories": self.directories,
             "diagnostics": [asdict(d) for d in self.diagnostics],
         }

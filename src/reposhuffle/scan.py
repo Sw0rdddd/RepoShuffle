@@ -299,8 +299,8 @@ def read_tree(
     source = source.expanduser().resolve()
     if not source.is_dir():
         raise ShuffleError(f"Not a project directory: {source}")
-    packages, scripts, anchors = discover(source)
-    result = Inspection(source, packages=packages, script_roots=scripts)
+    packages, scripts, anchors, source_roots = discover(source)
+    result = Inspection(source, packages=packages, script_roots=scripts, source_roots=source_roots)
     paths, ignored = _walk_tree(source, result)
     nested_roots = {
         path.parent.relative_to(source).as_posix()

@@ -2,10 +2,11 @@
 
 English | [简体中文](README_zh.md)
 
-Reorganize the directory structure of Python implementation code through a CLI or Python API. Current version: **0.3.0**.
+Reorganize the directory structure of Python implementation code through a CLI or Python API. Current version: **0.3.1**.
 
 - **Flat mode**: collect code at one level within each implementation area; resolve duplicate names with numeric suffixes such as `main_1.py` and `main_2.py`.
 - **Random mode**: group files before building a directory tree, avoiding single-file directories and empty intermediate directories. Directories are named `module_1`, `module_2`, and so on. A `complexity` value from 0 to 1 controls density, branching, and depth; the default is `0.7`.
+- **Cross-package mixing by default**: packages within one source root share an allocation pool, regardless of names such as `layer`; independent source roots stay separate.
 - **Seed and complexity together**: the seed changes the tree shape and assignments within a complexity level, while complexity biases the overall density and depth. Fixed seed and complexity reproduce the same layout.
 - **Preserve auxiliary structure**: keep `tests/`, documentation, examples, fixtures, resources, and project configuration in their original locations by default.
 - **Respect `.gitignore`**: matching files are still copied to the output but remain in place rather than being shuffled.
@@ -92,7 +93,7 @@ demo-shuffled/
 
 Existing output directories are never overwritten. Input and output must not contain each other. The input project is not modified; Git history, virtual environments, caches, and build artifacts are excluded.
 
-Package implementations are placed under `_reposhuffle_code/`: directly in flat mode, or in numbered subdirectories in random mode. Package entry points receive a small, self-contained module router. The output does not require RepoShuffle, does not access the original repository, and does not patch global filesystem APIs. Original module names remain valid, so imports in tests, `mock.patch` targets, and configured entry points usually need no renaming. The routing table is required at runtime and contains the mapping between logical modules and physical source locations.
+Implementations are placed under `_reposhuffle_code/`: multiple packages within one source root share storage at that root (for example, `src/layer1` and `src/layer2` share `src/_reposhuffle_code/`); a single package keeps storage inside the package. Flat mode places files directly there, while random mode uses numbered subdirectories. Package entry points receive a small, self-contained module router. The output does not require RepoShuffle, does not access the original repository, and does not patch global filesystem APIs. Original module names remain valid, so imports in tests, `mock.patch` targets, and configured entry points usually need no renaming. The routing table is required at runtime and contains the mapping between logical modules and physical source locations. The inspection's `source_roots` field records package source boundaries.
 
 All package `__init__.py` files, version modules read statically during builds, compiled-fallback modules named `*_cy.py`, and files that directly use `__file__` remain in place with recorded reasons. Files beside resources that pass `__name__` to other code also retain their locations, supporting factories that derive resource roots from module identity, such as Flask Blueprint. Standalone scripts retain thin entry points at their original locations, with their implementations moved into the implementation area. Resources, empty auxiliary directories, and logical package resource roots are preserved. Packages emptied by relocation may retain marker files containing no business implementation, ensuring their resource directories survive ordinary wheel installation. Tests and documentation are preserved byte-for-byte by default. **“Flat” applies to each implementation area, not to the entire repository.**
 
@@ -135,7 +136,9 @@ Conversion performs static compilation, target checks, and inventory checks only
 
 The primary relocation targets are `.py` implementation files; binaries, resources, and auxiliary files remain in place. Symbolic links are not automatically followed. Special builds that explicitly enumerate source files, custom loaders, direct loading from old filesystem paths, and static type-checker resolution may require additional adaptation and should be verified. The built-in router preserves logical package names, but file paths and traceback paths change. This is not a source encryption tool.
 
-Requests, Flask, and Rich were validated in flat/random modes with selected core tests on Windows / Python 3.13 under 0.2.0. The 0.3.0 layout and compatibility changes are covered by the tool test suite and targeted checks; a fresh evaluation across all sample repositories is a separate step. This does not mean all versions, platforms, or complete test suites have passed. Layout version 3 is not intended to reproduce layouts generated by 0.2.0; reproducibility is guaranteed only for the same version, inputs, seed, and complexity.
+Requests, Flask, and Rich were validated in flat/random modes with selected core tests on Windows / Python 3.13 under 0.2.0. Current layout and compatibility changes are covered by the tool test suite and targeted checks; consult each evaluation report for real-repository results. This does not mean all versions, platforms, or complete test suites have passed. The current layout version is 4 and does not reproduce layout version 3; reproducibility requires the same tool and layout versions, inputs, seed, and complexity.
+
+The [0.3.1 evaluation report](docs/evaluation-0.3.1.md) records flat/random results across 12 repositories, including unresolved compatibility failures and Windows native stack-overflow limits.
 
 ## Development
 

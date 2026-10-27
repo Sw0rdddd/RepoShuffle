@@ -53,8 +53,8 @@ def read_config(source: Path) -> dict:
 
 def discover(
     source: Path, source_dirs: list[str] | None = None
-) -> tuple[dict[str, str], list[str], dict[str, str]]:
-    """Return public package roots, script areas and build-metadata anchors."""
+) -> tuple[dict[str, str], list[str], dict[str, str], dict[str, str]]:
+    """Return public packages, script areas, metadata anchors and source boundaries."""
     config = read_config(source)
     tools = config.get("tool", {})
     setuptools = tools.get("setuptools", {})
@@ -85,16 +85,19 @@ def discover(
         bases = ["src" if (source / "src").is_dir() else "."]
     requested = source_dirs or tools.get("reposhuffle", {}).get("source-dirs")
     packages: dict[str, str] = {}
+    source_roots: dict[str, str] = {}
     scripts: list[str] = []
 
-    def package(path: Path, logical: str) -> None:
+    def package(path: Path, logical: str, area: Path) -> None:
         rel = path.relative_to(source).as_posix()
         previous = packages.get(logical)
         if previous is not None and previous != rel:
             raise ShuffleError(f"Ambiguous package {logical}: {previous}, {rel}")
         packages[logical] = rel
+        source_roots[logical] = area.relative_to(source).as_posix()
 
-    def walk_packages(base: Path, prefix: str = "") -> None:
+    def walk_packages(base: Path, prefix: str = "", area: Path | None = None) -> None:
+        area = base if area is None else area
         if not base.is_dir():
             return
         for child in sorted(base.iterdir()):
@@ -106,10 +109,10 @@ def discover(
                 continue
             name = mapped.get(child.resolve(), prefix + child.name)
             if (child / "__init__.py").is_file():
-                package(child, name)
+                package(child, name, area)
             else:
                 # Namespace ancestors remain namespaces; instrument their real packages.
-                walk_packages(child, name + ".")
+                walk_packages(child, name + ".", area)
 
     if requested:
         for raw in requested:
@@ -119,7 +122,7 @@ def discover(
             if (path / "__init__.py").is_file():
                 if not identifier(path.name):
                     raise ShuffleError(f"Invalid package directory: {raw}")
-                package(path, path.name)
+                package(path, path.name, path)
             elif path.name in {"src", "."} or path == source:
                 walk_packages(path)
                 scripts.append(path.relative_to(source).as_posix())
@@ -129,7 +132,7 @@ def discover(
     else:
         for path, name in mapped.items():
             if (path / "__init__.py").is_file():
-                package(path, name)
+                package(path, name, path)
             else:
                 walk_packages(path, name + ".")
         roots: list[Path] = []
@@ -186,7 +189,12 @@ def discover(
         for n, p in packages.items()
         if not any(fnmatch.fnmatchcase(n, pat) for pat in excludes)
     }
-    return dict(sorted(packages.items())), sorted(set(scripts)), anchors
+    return (
+        dict(sorted(packages.items())),
+        sorted(set(scripts)),
+        anchors,
+        {name: source_roots[name] for name in sorted(packages)},
+    )
 
 
 def _storage_directories(plan: Plan) -> set[PurePosixPath]:
@@ -208,6 +216,22 @@ def _logical_storage_packages(plan: Plan, storage: set[PurePosixPath]) -> set[st
         if owners:
             name, root = max(owners, key=lambda item: len(item[1].parts))
             additions.add(".".join((name, *directory.relative_to(root).parts)))
+        else:
+            bases = [
+                PurePosixPath(base)
+                for base in plan.inspection.source_roots.values()
+                if directory.is_relative_to(PurePosixPath(base))
+            ]
+            if bases:
+                base = max(bases, key=lambda path: len(path.parts))
+                name, root = next(
+                    (name, PurePosixPath(root))
+                    for name, root in plan.inspection.packages.items()
+                    if plan.inspection.source_roots[name] == str(base)
+                )
+                suffix = root.relative_to(base).parts
+                namespace = name.split(".")[: -len(suffix)] if suffix else name.split(".")
+                additions.add(".".join((*namespace, *directory.relative_to(base).parts)))
     return additions
 
 
@@ -299,7 +323,8 @@ def include_storage_packages(plan: Plan) -> None:
     _include_setup_packages(plan, additions)
     if not additions or not backend.startswith("setuptools."):
         return
-    if not (isinstance(declared, list) or modules):
+    restricted_finder = isinstance(declared, dict) and bool(declared.get("find", {}).get("include"))
+    if not (isinstance(declared, list) or modules or restricted_finder):
         return
     import tomlkit
 

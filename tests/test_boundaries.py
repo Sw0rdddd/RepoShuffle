@@ -150,10 +150,43 @@ def test_setup_py_packages_include_storage(project, tmp_path, mode):
 
 
 @pytest.mark.parametrize("mode", ["flat", "random"])
-@pytest.mark.parametrize("layout", ["module", "src-module", "named-package", "explicit-packages"])
+@pytest.mark.parametrize(
+    "layout",
+    [
+        "module",
+        "src-module",
+        "named-package",
+        "explicit-packages",
+        "shared-root",
+        "shared-src",
+        "shared-finder",
+        "shared-namespace",
+    ],
+)
 def test_wheel_contains_moved_implementation(project, tmp_path, mode, layout):
     header = '[build-system]\nrequires=["setuptools>=68"]\nbuild-backend="setuptools.build_meta"\n[project]\nname="boundary-demo"\nversion="1.0"\n'
-    if layout in {"module", "src-module"}:
+    if layout == "shared-namespace":
+        config = '[tool.setuptools]\npackages=["ns.demo", "ns.peer"]\n[tool.setuptools.package-dir]\nns="lib"\n'
+        files = {
+            "lib/demo/__init__.py": "from .worker import VALUE\n",
+            "lib/demo/worker.py": "from ns.peer.worker import VALUE\n",
+            "lib/peer/__init__.py": "",
+            "lib/peer/worker.py": "VALUE=7\n",
+        }
+    elif layout.startswith("shared-"):
+        base = "src/" if layout != "shared-root" else ""
+        config = '[tool.setuptools]\npackages=["demo", "peer"]\n'
+        if layout == "shared-finder":
+            config = '[tool.setuptools.packages.find]\nwhere=["src"]\ninclude=["demo*", "peer*"]\n'
+        elif base:
+            config += '[tool.setuptools.package-dir]\n""="src"\n'
+        files = {
+            base + "demo/__init__.py": "from .worker import VALUE\n",
+            base + "demo/worker.py": "from peer.worker import VALUE\n",
+            base + "peer/__init__.py": "",
+            base + "peer/worker.py": "VALUE=7\n",
+        }
+    elif layout in {"module", "src-module"}:
         base = "src/" if layout == "src-module" else ""
         config = '[tool.setuptools]\npy-modules=["demo"]\n'
         if base:
@@ -208,6 +241,8 @@ def test_wheel_contains_moved_implementation(project, tmp_path, mode, layout):
         + repr(str(site))
         + "); import demo; assert demo.VALUE==7; print(demo.__file__)"
     )
+    if layout == "shared-namespace":
+        code = code.replace("import demo;", "from ns import demo;")
     if layout == "named-package":
         code += "; from importlib.resources import files; import demo.sub, demo.ns.worker; assert files('demo.sub').is_dir(); assert files('demo.ns').is_dir(); list(files('demo.sub').iterdir()); list(files('demo.ns').iterdir())"
     check = subprocess.run(

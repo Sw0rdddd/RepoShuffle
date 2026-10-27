@@ -8,7 +8,9 @@ from pathlib import PurePosixPath
 import libcst as cst
 
 
-def bootstrap(data: bytes, runtime: str, routes: str, prefix: str) -> bytes:
+def bootstrap(
+    data: bytes, runtime: str, routes: str, prefix: str, logical_root: str | None = None
+) -> bytes:
     module = cst.parse_module(data)
     body = list(module.body)
     offset = 0
@@ -31,7 +33,7 @@ def bootstrap(data: bytes, runtime: str, routes: str, prefix: str) -> bytes:
     code = (
         f"from .{runtime} import install as _reposhuffle_install\n"
         f"from .{routes} import ROUTES as _reposhuffle_routes\n"
-        f"_reposhuffle_install(__name__, __file__, _reposhuffle_routes, {prefix!r})\n"
+        f"_reposhuffle_install(__name__, __file__, _reposhuffle_routes, {prefix!r}, {logical_root!r})\n"
         f"del _reposhuffle_install, _reposhuffle_routes\n"
         f"globals().pop({runtime!r}, None)\n"
         f"globals().pop({routes!r}, None)\n"

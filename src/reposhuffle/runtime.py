@@ -132,8 +132,10 @@ class ModuleFinder(importlib.abc.MetaPathFinder):
         return spec
 
 
-def install(root, package_file, routes, private_prefix):
+def install(root, package_file, routes, private_prefix, logical_root=None):
     base = Path(package_file).resolve().parent
+    if logical_root and root != logical_root:
+        routes = {root + name[len(logical_root) :]: entry for name, entry in routes.items()}
     for finder in sys.meta_path:
         if isinstance(finder, ModuleFinder) and finder.root == root and finder.base == base:
             return

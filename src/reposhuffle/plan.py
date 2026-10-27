@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import collections
 import math
+import posixpath
 import random
 import secrets
 from pathlib import Path, PurePosixPath
@@ -199,14 +200,33 @@ def _move(plan: Plan, records: list[FileRecord], zone: str, layout: NumberedLayo
                 _generated(plan, init, b"", "implementation storage package")
 
 
-def _package(plan: Plan, name: str, root: str, layout: NumberedLayout) -> None:
+def _relocate(plan: Plan, layout: NumberedLayout) -> None:
+    """Allocate once per source boundary, independently of logical package ownership."""
+    packages_by_root: dict[str, list[str]] = collections.defaultdict(list)
+    for name, root in plan.inspection.source_roots.items():
+        packages_by_root[root].append(name)
+    storage_roots = {
+        name: root if len(names) > 1 else plan.inspection.packages[name]
+        for root, names in packages_by_root.items()
+        for name in names
+    }
+    groups: dict[str, list[FileRecord]] = collections.defaultdict(list)
+    for record in plan.inspection.files:
+        if record.role == "source":
+            groups[storage_roots[record.owner]].append(record)
+        elif record.role == "script":
+            groups[record.owner or "."].append(record)
+    for root, records in sorted(groups.items()):
+        zone = str(PurePosixPath(root) / (_prefix(plan, root) + "_code"))
+        _move(plan, records, zone, layout)
+
+
+def _package(plan: Plan, name: str, root: str) -> None:
     files = [f for f in plan.inspection.files if f.owner == name and f.module]
     moving = [f for f in files if f.role == "source"]
     if not moving:
         return
     prefix = _prefix(plan, root)
-    zone = f"{root}/{prefix}_code"
-    _move(plan, moving, zone, layout)
     for record in moving:
         if record.is_package:
             # Keep package discovery and resource roots in wheels; the finder
@@ -216,7 +236,7 @@ def _package(plan: Plan, name: str, root: str, layout: NumberedLayout) -> None:
     for record in files:
         if record.module == name:
             continue
-        relative = str(PurePosixPath(plan.mapping[record.path]).relative_to(root))
+        relative = posixpath.relpath(plan.mapping[record.path], root)
         resource_dir = str(PurePosixPath(record.path).parent.relative_to(root))
         routes[record.module] = (relative, record.is_package, resource_dir)
         # Intermediate namespace packages need no fabricated __init__.py.
@@ -249,25 +269,23 @@ def _package(plan: Plan, name: str, root: str, layout: NumberedLayout) -> None:
         "logical module routing table",
     )
     entry = f"{root}/__init__.py"
-    plan.contents[entry] = bootstrap(plan.contents[entry], runtime_name, route_name, prefix)
+    plan.contents[entry] = bootstrap(plan.contents[entry], runtime_name, route_name, prefix, name)
     plan.changes.append({"kind": "package-bootstrap", "path": entry})
 
 
-def _scripts(plan: Plan, layout: NumberedLayout) -> None:
+def _scripts(plan: Plan) -> None:
     groups: dict[str, list[FileRecord]] = {}
     for record in plan.inspection.files:
         if record.role == "script":
             groups.setdefault(record.owner or ".", []).append(record)
     for root, files in sorted(groups.items()):
-        prefix = _prefix(plan, root)
-        zone = str(PurePosixPath(root) / (prefix + "_code"))
-        original = {f.path: plan.contents[f.path] for f in files}
-        _move(plan, files, zone, layout)
         for record in files:
             _generated(
                 plan,
                 record.path,
-                script_entry(record.path, plan.mapping[record.path], original[record.path]),
+                script_entry(
+                    record.path, plan.mapping[record.path], plan.contents[plan.mapping[record.path]]
+                ),
                 "stable script entry",
             )
             plan.entry_commands.append("python " + repr(record.path))
@@ -378,7 +396,8 @@ def build_plan(
             "exclude": exclude,
             "strategy": "preserve-logical-modules",
             "scope": "implementation-only",
-            "layout_version": 3,
+            "layout_version": 4,
+            "allocation_scope": "source-root",
             "respect_gitignore": True,
         },
     )
@@ -397,9 +416,10 @@ def build_plan(
     plan.directories = [path for path in inspection.directories if path not in populated]
     layout = NumberedLayout(plan.seed, max_depth, resolved_complexity or 0.0)
     try:
+        _relocate(plan, layout)
         for name, root in inspection.packages.items():
-            _package(plan, name, root, layout)
-        _scripts(plan, layout)
+            _package(plan, name, root)
+        _scripts(plan)
         include_storage_packages(plan)
         plan.directories = sorted(set(plan.directories))
         plan.layout = _layout_stats(plan)
