@@ -31,5 +31,5 @@
 ## 工具与复现
 
 - 已修复 Python 3.10 的标准库资源读取器导入兼容性。工具测试在 Windows 的 Python 3.10 / 3.13 各为 221 通过、1 跳过（符号链接权限）；Linux 的两个版本各为 222 通过。Ruff、格式及 sdist → wheel 构建通过。
-- [测评脚本](../scripts/evaluate.py)支持固定提交、多种子、子模块初始化和隔离 wheel 验证；[工作流](../.github/workflows/compatibility.yml)从配置生成 Windows/Linux 矩阵，按周或手动运行，原始产物通过 CI 附件提供。克隆和运行产物不随源码提交。后续完整仓库矩阵仅交给 GitHub Actions，本地仅运行工具单测和必要的定点验证，不使用 Docker 重跑完整矩阵。
+- [测评脚本](../scripts/evaluate.py)支持固定提交、多种子、子模块初始化和隔离 wheel 验证；[工作流](../.github/workflows/compatibility.yml)从配置生成 Windows/Linux 矩阵，推送 `main` 时自动运行，也支持每周一北京时间 00:00 定时和手动运行，原始产物通过 CI 附件提供。克隆和运行产物不随源码提交。后续完整仓库矩阵仅交给 GitHub Actions，本地仅运行工具单测和必要的定点验证，不使用 Docker 重跑完整矩阵。
 - **上述为本地验证，尚未重新执行远端 Actions。**不将完整框架测试、其他 Python 版本、可选后端或未执行的 CI 视为已通过。构建依赖遵循上游配置，可能随时间变化；限制见[局限性](limitations.md)。

@@ -139,4 +139,4 @@ python -m build --outdir .tmp/dist
 
 CI 配置：Windows / Linux × Python 3.10–3.13；通过情况以实际运行记录为准。
 
-[测评配置](evaluation/python.json)记录仓库提交、依赖和测试范围；[测评脚本](scripts/evaluate.py)支持新增仓库、多种子对照和 wheel 隔离安装。用 `--help` 查看用法，`--output` 默认须指定全新目录；`--append --projects ...` 可追加新仓库，不覆盖已有结果。真实仓库工作流按周或手动运行，原始产物通过 CI 附件提供。测评会执行上游构建和测试，请使用隔离环境。
+[测评配置](evaluation/python.json)记录仓库提交、依赖和测试范围；[测评脚本](scripts/evaluate.py)支持新增仓库、多种子对照和 wheel 隔离安装。用 `--help` 查看用法，`--output` 默认须指定全新目录；`--append --projects ...` 可追加新仓库，不覆盖已有结果。真实仓库工作流在推送 `main` 时自动运行，也支持每周一北京时间 00:00 定时和手动运行，原始产物通过 CI 附件提供。测评会执行上游构建和测试，请使用隔离环境。

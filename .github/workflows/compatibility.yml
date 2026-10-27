@@ -1,9 +1,12 @@
 name: real-repository compatibility
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: '23 3 * * 1'
+    # Monday 00:00 Beijing time (Sunday 16:00 UTC).
+    - cron: '0 16 * * 0'
 
 permissions:
   contents: read
