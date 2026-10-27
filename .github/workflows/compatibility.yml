@@ -1,0 +1,57 @@
+name: real-repository compatibility
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  profiles:
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.matrix.outputs.projects }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          profiles = json.loads(Path('evaluation/python.json').read_text())
+          assert profiles, 'No evaluation profiles configured'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print('projects=' + json.dumps(list(profiles)), file=output)
+          PY
+
+  compare:
+    needs: profiles
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        project: ${{ fromJSON(needs.profiles.outputs.projects) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e ".[dev]"
+      - name: Compare pinned upstream snapshots
+        run: python scripts/evaluate.py --clone --projects ${{ matrix.project }} --output .tmp/compatibility --seeds 42 123 --artifacts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compatibility-${{ matrix.os }}-${{ matrix.project }}
+          include-hidden-files: true
+          path: |
+            .tmp/compatibility/summary.json
+            .tmp/compatibility/*/report.json
+            .tmp/compatibility/*/*.log
+            .tmp/compatibility/*/*.xml
+            .tmp/compatibility/*/dependencies.txt

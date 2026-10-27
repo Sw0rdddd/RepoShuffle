@@ -6,11 +6,13 @@ finder never consults the input repository and never patches filesystem APIs.
 
 from __future__ import annotations
 
+import importlib
 import importlib.abc
 import importlib.machinery
 import importlib.util
 import pkgutil
 import sys
+from importlib.resources.readers import MultiplexedPath
 from pathlib import Path
 
 try:
@@ -19,12 +21,84 @@ except ImportError:  # Python 3.10
     from importlib.abc import TraversableResources
 
 
+class AliasLoader(importlib.abc.Loader):
+    """A physical import reuses the canonical module without executing it twice."""
+
+    def __init__(self, canonical):
+        self.canonical = canonical
+
+    def create_module(self, spec):
+        module = importlib.import_module(self.canonical)
+        self.spec = module.__spec__
+        return module
+
+    def exec_module(self, module):
+        # importlib assigns the alias spec even when create_module returns an
+        # existing module. Keep introspection and reload on the canonical name.
+        module.__spec__ = self.spec
+
+
+class AliasFinder(importlib.abc.MetaPathFinder):
+    def __init__(self, aliases):
+        self.aliases = aliases
+
+    def find_spec(self, fullname, path=None, target=None):
+        canonical = self.aliases.get(fullname)
+        if canonical is None:
+            return None
+        return importlib.util.spec_from_loader(fullname, AliasLoader(canonical))
+
+
+def install_aliases(storage, aliases, logical_storage=None):
+    prefix = (
+        storage[: -len(logical_storage)]
+        if logical_storage and storage.endswith(logical_storage)
+        else ""
+    )
+    sys.meta_path.insert(
+        0, AliasFinder({storage + "." + suffix: prefix + name for suffix, name in aliases.items()})
+    )
+
+
 class ResourceReader(TraversableResources):
     def __init__(self, directory):
-        self.directory = Path(directory)
+        self.directory = directory
 
     def files(self):
-        return self.directory
+        if isinstance(self.directory, RoutedNamespacePath):
+            return MultiplexedPath(*self.directory)
+        return Path(self.directory)
+
+
+class RoutedNamespacePath:
+    """Keep logical resources and recompute external portions after path changes."""
+
+    def __init__(self, package, directory):
+        self.package = package
+        self.directory = str(directory)
+        self.extra = []
+
+    def _paths(self):
+        parent, _, child = self.package.rpartition(".")
+        search = getattr(sys.modules.get(parent), "__path__", []) if parent else sys.path
+        paths = [self.directory, *self.extra]
+        for base in search:
+            candidate = Path(base) / child
+            if candidate.is_dir() and not (candidate / "__init__.py").is_file():
+                paths.append(str(candidate))
+        return list(dict.fromkeys(paths))
+
+    def __iter__(self):
+        return iter(self._paths())
+
+    def __len__(self):
+        return len(self._paths())
+
+    def __getitem__(self, index):
+        return self._paths()[index]
+
+    def append(self, path):
+        self.extra.append(path)
 
 
 class NamespaceLoader(importlib.abc.Loader):
@@ -108,10 +182,13 @@ class ModuleFinder(importlib.abc.MetaPathFinder):
         self.routes = routes
         self.private_prefix = private_prefix
 
-    def path(self, package, directory):
+    def path(self, package, directory, namespace=False):
         path = str(directory)
         sys.path_importer_cache[path] = PackagePath(self, package, directory)
-        return [path]
+        if namespace:
+            return RoutedNamespacePath(package, directory)
+        previous = getattr(sys.modules.get(package), "__path__", [])
+        return list(dict.fromkeys([path, *previous]))
 
     def find_spec(self, fullname, path=None, target=None):
         entry = self.routes.get(fullname)
@@ -120,15 +197,18 @@ class ModuleFinder(importlib.abc.MetaPathFinder):
         relative, package, resource_directory = entry
         resources = self.base / resource_directory
         if relative is None:
+            locations = self.path(fullname, resources, namespace=True)
             spec = importlib.machinery.ModuleSpec(
-                fullname, NamespaceLoader(resources), is_package=True
+                fullname, NamespaceLoader(locations), is_package=True
             )
         else:
             filename = str(self.base / relative)
             loader = MappedLoader(fullname, filename, package, resources)
             spec = importlib.util.spec_from_file_location(fullname, filename, loader=loader)
         if package:
-            spec.submodule_search_locations = self.path(fullname, resources)
+            spec.submodule_search_locations = (
+                locations if relative is None else self.path(fullname, resources)
+            )
         return spec
 
 

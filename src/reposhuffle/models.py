@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import MutableMapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 
 
 @dataclass(frozen=True)
@@ -73,21 +74,30 @@ class Plan:
     dependencies: dict[str, list[str]] = field(default_factory=dict)
     generated: dict[str, str] = field(default_factory=dict)
     # Validated output bytes are private; no writes occur while building a plan.
-    contents: dict[str, bytes] = field(default_factory=dict, repr=False)
+    contents: MutableMapping[str, bytes] = field(default_factory=dict, repr=False)
     diagnostics: list[Diagnostic] = field(default_factory=list)
     changes: list[dict[str, Any]] = field(default_factory=list)
     entry_commands: list[str] = field(default_factory=list)
     directories: list[str] = field(default_factory=list)
     layout: dict[str, Any] = field(default_factory=dict)
+    compatibility: dict[str, Any] = field(default_factory=dict)
     _validated: str = field(default="", repr=False)
+
+    def _content_hashes(self) -> list[tuple[str, str]]:
+        from .contents import SnapshotContents
+
+        if isinstance(self.contents, SnapshotContents):
+            return self.contents.hashes()
+        return [
+            (path, hashlib.sha256(self.contents[path]).hexdigest())
+            for path in sorted(self.contents)
+        ]
 
     def _fingerprint(self) -> str:
         payload = {
             "plan": self.to_dict(),
             "files": [asdict(f) for f in self.inspection.files],
-            "rendered": [
-                (p, hashlib.sha256(data).hexdigest()) for p, data in sorted(self.contents.items())
-            ],
+            "rendered": self._content_hashes(),
         }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, ensure_ascii=True).encode()
@@ -112,6 +122,7 @@ class Plan:
             "directories": self.directories,
             "input_directories": self.inspection.directories,
             "layout": self.layout,
+            "compatibility": self.compatibility,
             "changes": self.changes,
             "diagnostics": [asdict(d) for d in self.inspection.diagnostics + self.diagnostics],
         }

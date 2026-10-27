@@ -2,11 +2,11 @@
 
 **重排 Python 源码结构，保留逻辑导入。**
 
-![Version](https://img.shields.io/badge/version-0.3.1-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.3.2-2563eb?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10–3.13-3776ab?style=flat-square)
 ![Interface](https://img.shields.io/badge/interface-CLI%20%2F%20API-475569?style=flat-square)
 
-[English](README.md) · **简体中文** · [真实仓库测评](docs/evaluation-0.3.1.md) · [局限性](docs/limitations.md)
+[English](README.md) · **简体中文** · [真实仓库测评](docs/evaluation-0.3.2.md) · [局限性](docs/limitations.md)
 
 ---
 
@@ -15,7 +15,7 @@
 | **Flat** | 实现文件集中到同一层，重名以数字后缀消解 |
 | **Random** | 生成分组目录树，用种子、复杂度和深度控制布局 |
 
-同一源码根默认跨包混排，独立源码根分别处理。测试、文档、资源和配置默认保留原位；公开 import 通常无需修改。输出自包含，运行时不依赖 RepoShuffle。
+同一源码根默认跨包混排，独立源码根分别处理；Flit 遵循单包交付边界。测试、文档、资源和配置默认保留原位，公开 import 通常无需修改。输出自包含，物理模块导入复用逻辑模块身份，命名空间路径可动态扩展。
 
 ## ⚡ 快速开始
 
@@ -60,6 +60,7 @@ python -m pytest tests/
 | `--seed 整数` | 随机种子；省略则生成并记录 |
 | `--max-depth 1..5` | 随机目录深度上限，默认 `3`；不强制生成多层 |
 | `--complexity 0..1` | 仅限随机模式，默认 `0.7`；越大，文件分组越细、分支和层级越丰富 |
+| `--subproject 相对路径` | 选择工作区中的独立子项目；选择规则相对于该子项目 |
 | `--include 路径或通配符` | 限定实现选择范围，可重复；范围外文件仍复制并保留原位 |
 | `--exclude 路径或通配符` | 匹配文件或目录保留原位，可重复 |
 | `-o, --output 路径` | 配对输出容器，父目录须存在；仅限 `shuffle` |
@@ -69,6 +70,9 @@ python -m pytest tests/
 ```bash
 # 调整树形并指定输出位置
 reposhuffle shuffle ./demo --seed 42 --complexity 0.85 --max-depth 2 -o ./results/demo-pair
+
+# 单独处理工作区中的一个项目
+reposhuffle shuffle ./workspace --subproject services/api --seed 42
 
 # 选择实现范围，可重复传入 include / exclude
 reposhuffle shuffle ./demo --include 'backend/**' --include 'lib/**' --exclude 'backend/vendor/**'
@@ -107,24 +111,28 @@ else:
 ```
 
 - `inspect_project`：查看源码识别及保留原因。
-- `build_plan`：只读规划、在内存生成内容，不执行目标模块或构建钩子。
-- `apply_plan`：写入配对输出；省略 `output` 使用默认同级目录。验证后若输入、目录清单或计划变化，需重新规划。
+- `build_plan`：只读规划，改写内容在内存生成，未改动资源不常驻内存；不执行目标代码。
+- `apply_plan`：校验哈希并流式发布配对输出；省略 `output` 使用默认同级目录。验证后若输入、目录清单或计划变化，需重新规划。
+
+API 同样支持 `subproject="services/api"`。`plan.compatibility` 汇总构建适配、移动比例、保留原因和风险，不等同于运行验证。
 
 ## 🛡️ 验证边界
 
 转换仅执行静态编译、目标和清单检查，**不证明功能等价，也不自动安装依赖或运行目标测试**。文件路径和回溯会变化；源码扫描、自定义加载器、特殊构建和类型检查可能需要适配。符号链接不自动跟随；这不是源码加密工具。
 
-12 个真实仓库的对照结果见[测评记录](docs/evaluation-0.3.1.md)，已知失败与未验证范围见[局限性](docs/limitations.md)。
+12 个真实仓库的对照结果见[测评记录](docs/evaluation-0.3.2.md)，已知失败与未验证范围见[局限性](docs/limitations.md)。
 
 ## 开发
 
 ```bash
 python -m pip install -e '.[dev]'
-python -m ruff check src tests
-python -m ruff format --check src tests
+python -m ruff check src tests scripts
+python -m ruff format --check src tests scripts
 python -c "from pathlib import Path; Path('.tmp').mkdir(exist_ok=True)"
 python -m pytest -q --basetemp=.tmp/pytest
 python -m build --outdir .tmp/dist
 ```
 
 CI 配置：Windows / Linux × Python 3.10–3.13；通过情况以实际运行记录为准。
+
+[测评配置](evaluation/python.json)记录仓库提交、依赖和测试范围；[测评脚本](scripts/evaluate.py)支持新增仓库、多种子对照和 wheel 隔离安装。用 `--help` 查看用法，`--output` 默认须指定全新目录；`--append --projects ...` 可追加新仓库，不覆盖已有结果。真实仓库工作流按周或手动运行，原始产物通过 CI 附件提供。测评会执行上游构建和测试，请使用隔离环境。

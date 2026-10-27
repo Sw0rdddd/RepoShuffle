@@ -98,12 +98,20 @@ def test_named_package_directory_mapping(project, run_module, mode):
 
 
 @pytest.mark.parametrize("mode", ["flat", "random"])
-def test_setup_py_packages_include_storage(project, tmp_path, mode):
+@pytest.mark.parametrize(
+    "setup_import,setup_call",
+    [
+        ("from setuptools import setup", "setup"),
+        ("from setuptools import setup as configure", "configure"),
+        ("import setuptools as st", "st.setup"),
+    ],
+)
+def test_setup_py_packages_include_storage(project, tmp_path, mode, setup_import, setup_call):
     source = project(
         {
             "setup.py": (
-                "from setuptools import setup\n"
-                "setup(name='setup-demo', version='1.0', packages=['demo'])\n"
+                f"{setup_import}\n"
+                f"{setup_call}(name='setup-demo', version='1.0', packages=['demo'])\n"
             ),
             "demo/__init__.py": "from .worker import VALUE\n",
             "demo/worker.py": "VALUE=7\n",

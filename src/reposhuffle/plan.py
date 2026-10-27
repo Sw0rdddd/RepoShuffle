@@ -9,16 +9,28 @@ import random
 import secrets
 from pathlib import Path, PurePosixPath
 
+from .compatibility import explain
+from .contents import SnapshotContents
 from .models import Diagnostic, FileRecord, Inspection, Plan, ShuffleError
-from .project import include_storage_packages
+from .project import (
+    _logical_storage_packages,
+    identifier,
+    include_storage_packages,
+    read_config,
+    select_project,
+)
 from .rewrite import bootstrap, script_entry
-from .scan import decode_python, digest, read_tree
+from .scan import decode_python, read_tree
 
 
 def inspect_project(
-    source: str | Path, *, include: list[str] | None = None, exclude: list[str] | None = None
+    source: str | Path,
+    *,
+    include: list[str] | None = None,
+    exclude: list[str] | None = None,
+    subproject: str | Path | None = None,
 ) -> Inspection:
-    return read_tree(Path(source), include=include, exclude=exclude)
+    return read_tree(select_project(source, subproject), include=include, exclude=exclude)
 
 
 DEFAULT_COMPLEXITY = 0.7
@@ -205,8 +217,14 @@ def _relocate(plan: Plan, layout: NumberedLayout) -> None:
     packages_by_root: dict[str, list[str]] = collections.defaultdict(list)
     for name, root in plan.inspection.source_roots.items():
         packages_by_root[root].append(name)
+    backend = (
+        read_config(plan.inspection.source)
+        .get("build-system", {})
+        .get("build-backend", "setuptools.build_meta")
+    )
+    shared = not backend.startswith("flit_core.")
     storage_roots = {
-        name: root if len(names) > 1 else plan.inspection.packages[name]
+        name: root if len(names) > 1 and shared else plan.inspection.packages[name]
         for root, names in packages_by_root.items()
         for name in names
     }
@@ -219,6 +237,33 @@ def _relocate(plan: Plan, layout: NumberedLayout) -> None:
     for root, records in sorted(groups.items()):
         zone = str(PurePosixPath(root) / (_prefix(plan, root) + "_code"))
         _move(plan, records, zone, layout)
+        aliases = {}
+        for record in records:
+            parts = PurePosixPath(record.path).relative_to(root).with_suffix("").parts
+            canonical = record.module
+            if canonical is None:
+                if parts == ("__main__",) or not all(identifier(part) for part in parts):
+                    continue
+                canonical = ".".join(parts)
+            physical = PurePosixPath(plan.mapping[record.path]).relative_to(zone).with_suffix("")
+            aliases[".".join(physical.parts)] = canonical
+        if aliases:
+            runtime_name = "_reposhuffle_aliases"
+            while f"{zone}/{runtime_name}.py" in plan.contents:
+                runtime_name += "_"
+            logical_storage = next(
+                iter(_logical_storage_packages(plan, {PurePosixPath(zone)})),
+                PurePosixPath(zone).name,
+            )
+            runtime = Path(__file__).with_name("runtime.py").read_bytes()
+            _generated(
+                plan, f"{zone}/{runtime_name}.py", runtime, "physical import identity router"
+            )
+            plan.contents[f"{zone}/__init__.py"] = (
+                f"from .{runtime_name} import install_aliases as _install\n"
+                f"_install(__name__, {dict(sorted(aliases.items()))!r}, {logical_storage!r})\n"
+                "del _install\n"
+            ).encode()
 
 
 def _package(plan: Plan, name: str, root: str) -> None:
@@ -365,6 +410,7 @@ def build_plan(
     complexity: float | None = None,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
+    subproject: str | Path | None = None,
 ) -> Plan:
     """Render in memory, without importing input modules or executing build hooks."""
     if mode not in {"flat", "random"}:
@@ -382,8 +428,10 @@ def build_plan(
     else:
         resolved_complexity = None
     capacity = _capacity(resolved_complexity) if resolved_complexity is not None else None
-    contents: dict[str, bytes] = {}
-    inspection = read_tree(Path(source), include=include, exclude=exclude, _contents=contents)
+    contents = SnapshotContents()
+    inspection = read_tree(
+        select_project(source, subproject), include=include, exclude=exclude, _contents=contents
+    )
     plan = Plan(
         inspection,
         mode,
@@ -399,8 +447,10 @@ def build_plan(
             "layout_version": 4,
             "allocation_scope": "source-root",
             "respect_gitignore": True,
+            "subproject": str(subproject) if subproject is not None else None,
         },
     )
+    plan.compatibility = explain(plan)
     if not plan.ok:
         return plan
     # Render the exact bytes that were analyzed and hashed. apply_plan rechecks
@@ -435,11 +485,12 @@ def build_plan(
                 compile(decode_python(plan.contents[path]), path, "exec")
         if len({p.casefold() for p in plan.contents}) != len(plan.contents):
             raise ShuffleError("Case-insensitive output collision")
+        hashes = dict(plan._content_hashes())
         for record in inspection.files:
             if (
                 record.role == "preserved"
                 and record.path not in changed
-                and digest(plan.contents[record.path]) != record.sha256
+                and hashes[record.path] != record.sha256
             ):
                 raise ShuffleError(f"Unnecessary auxiliary modification: {record.path}")
     except (SyntaxError, ValueError, UnicodeError) as exc:

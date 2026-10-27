@@ -13,6 +13,7 @@ from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path, PurePosixPath
 
+from .contents import SnapshotContents, copy_verified
 from .models import VERSION, Inspection, Plan, ShuffleError
 from .scan import digest, read_inventory
 
@@ -121,20 +122,22 @@ def apply_plan(plan: Plan, output: str | Path | None = None) -> Path:
         modes: dict[str, int] = {}
         for record in plan.inspection.files:
             src = source / record.path
-            data = src.read_bytes()
             metadata = src.lstat()
-            if digest(data) != record.sha256 or not stat.S_ISREG(metadata.st_mode):
+            if not stat.S_ISREG(metadata.st_mode):
                 raise ShuffleError("Input changed while writing snapshots.")
             mode = stat.S_IMODE(metadata.st_mode)
             target = original / record.path
-            target.write_bytes(data)
+            copy_verified(src, target, record.sha256)
             target.chmod(mode)
             modes[plan.mapping[record.path]] = mode
             if record.path in plan.contents:
                 modes[record.path] = mode
-        for relative, data in sorted(plan.contents.items()):
+        for relative in sorted(plan.contents):
             target = shuffled / relative
-            target.write_bytes(data)
+            if isinstance(plan.contents, SnapshotContents):
+                plan.contents.write_to(relative, target)
+            else:
+                target.write_bytes(plan.contents[relative])
             if relative in modes:
                 target.chmod(modes[relative])
         summary = plan.to_dict()
@@ -180,9 +183,7 @@ def apply_plan(plan: Plan, output: str | Path | None = None) -> Path:
                 "runtime_validation": {"status": "not-run", "responsibility": "user"},
                 "snapshots": {"original": "original", "shuffled": "shuffled"},
                 "working_directory": "snapshot root",
-                "output_hashes": {
-                    path: digest(data) for path, data in sorted(plan.contents.items())
-                },
+                "output_hashes": dict(plan._content_hashes()),
             }
         )
         (temporary / "manifest.json").write_text(

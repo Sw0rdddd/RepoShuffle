@@ -70,6 +70,11 @@ def parser() -> argparse.ArgumentParser:
     )
     for command in (inspect, shuffle):
         command.add_argument(
+            "--subproject",
+            type=Path,
+            help="Select one project inside a workspace; include/exclude are relative to it.",
+        )
+        command.add_argument(
             "--include",
             action="append",
             help="Implementation path or glob to select; repeatable. Auxiliary files stay in place.",
@@ -90,7 +95,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise ShuffleError(
                     "--complexity requires --mode random; discovery-only inspect does not use it."
                 )
-            result = inspect_project(args.source, include=args.include, exclude=args.exclude)
+            result = inspect_project(
+                args.source, include=args.include, exclude=args.exclude, subproject=args.subproject
+            )
             payload = result.to_dict()
             payload["scope"] = "discovery-only; use --mode for full transformation feasibility"
         else:
@@ -102,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
                 complexity=args.complexity,
                 include=args.include,
                 exclude=args.exclude,
+                subproject=args.subproject,
             )
             payload = result.to_dict()
             if args.command == "shuffle" and not args.dry_run and result.ok:

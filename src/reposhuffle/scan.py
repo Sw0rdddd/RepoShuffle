@@ -13,9 +13,10 @@ from pathlib import Path, PurePosixPath
 
 from pathspec import GitIgnoreSpec
 
+from .contents import SnapshotContents, file_hash
 from .models import Diagnostic, FileRecord, Inspection, ShuffleError
 from .project import discover, identifier
-from .references import referenced
+from .references import location_sensitive, referenced
 
 EXCLUDED_DIRS = {
     ".git",
@@ -120,10 +121,20 @@ def _is_ignored(
 def _preserve_compiled_fallbacks(result: Inspection) -> None:
     records = {record.path: record for record in result.files}
     order = [record.path for record in result.files]
+    native_peers = {
+        str(PurePosixPath(path).parent / (PurePosixPath(path).name.split(".", 1)[0] + ".py"))
+        for path in records
+        if PurePosixPath(path).suffix in {".so", ".pyd", ".pyx", ".pxd"}
+    }
     for relative, record in list(records.items()):
         if not relative.endswith(".py") or record.role not in {"source", "script"}:
             continue
         stem = relative[:-3]
+        if relative in native_peers:
+            records[relative] = replace(
+                record, role="preserved", reason="native implementation sibling"
+            )
+            continue
         if stem.endswith("_cy"):
             paths = [relative]
             plain = stem[:-3] + ".py"
@@ -144,7 +155,7 @@ def _preserve_compiled_fallbacks(result: Inspection) -> None:
 def _apply_references(
     source: Path,
     result: Inspection,
-    reference_sets: dict[str, tuple[set[Path], set[Path], bool]],
+    reference_sets: dict[str, tuple[set[Path], set[Path], bool, set[str]]],
 ) -> None:
     records = {record.path: record for record in result.files}
     order = [record.path for record in result.files]
@@ -159,7 +170,25 @@ def _apply_references(
             continue
         analyzed.add(relative)
         record = records[relative]
-        references, directories, dynamic = reference_sets[relative]
+        references, directories, dynamic, scans = reference_sets[relative]
+        if scans:
+            result.diagnostics.append(
+                Diagnostic(
+                    "SOURCE_SCAN",
+                    relative,
+                    f"Filesystem scanning may expose physical layout: {', '.join(sorted(scans))}.",
+                    severity="warning",
+                )
+            )
+        if dynamic:
+            result.diagnostics.append(
+                Diagnostic(
+                    "DYNAMIC_SOURCE_LOADER",
+                    relative,
+                    "Unknown source-loader target; sibling anchors cannot guarantee runtime equivalence.",
+                    severity="warning",
+                )
+            )
         if directories and record.role in {"source", "script"}:
             records[relative] = replace(
                 record,
@@ -282,10 +311,8 @@ def read_inventory(source: Path) -> Inspection:
     result = Inspection(source)
     paths, _ = _walk_tree(source, result)
     for path in paths:
-        data = path.read_bytes()
-        result.files.append(
-            FileRecord(path.relative_to(source).as_posix(), digest(data), len(data))
-        )
+        sha256, size = file_hash(path)
+        result.files.append(FileRecord(path.relative_to(source).as_posix(), sha256, size))
     return result
 
 
@@ -294,7 +321,7 @@ def read_tree(
     *,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
-    _contents: dict[str, bytes] | None = None,
+    _contents: SnapshotContents | None = None,
 ) -> Inspection:
     source = source.expanduser().resolve()
     if not source.is_dir():
@@ -308,7 +335,7 @@ def read_tree(
         if path.name in NESTED_PROJECT_FILES and path.parent != source
     }
     resources = _resource_directories(source, paths)
-    reference_sets: dict[str, tuple[set[Path], set[Path], bool]] = {}
+    reference_sets: dict[str, tuple[set[Path], set[Path], bool, set[str]]] = {}
     seen: dict[str, str] = {}
     for directory in result.directories:
         if directory.casefold() in seen:
@@ -329,9 +356,15 @@ def read_tree(
                 )
             )
         seen[rel.casefold()] = rel
-        data = path.read_bytes()
-        if _contents is not None:
-            _contents[rel] = data
+        if path.suffix == ".py" or path.name in {"pyproject.toml", "setup.cfg"}:
+            data = path.read_bytes()
+            sha256, size = digest(data), len(data)
+            if _contents is not None:
+                _contents[rel] = data
+        else:
+            sha256, size = file_hash(path)
+            if _contents is not None:
+                _contents.defer(rel, path, sha256)
         tree = None
         role, reason, owner, module, package = "preserved", "auxiliary file", None, None, False
         if path.suffix == ".py":
@@ -380,7 +413,7 @@ def read_tree(
                 role, reason = "preserved", "build entry or pytest scope"
             if any(rel == root or rel.startswith(root + "/") for root in nested_roots):
                 role, reason = "preserved", "nested project"
-            if module and package:
+            if path.name == "__init__.py":
                 role, reason = "preserved", "package initialization entry"
             if module in anchors:
                 role, reason = "preserved", anchors[module]
@@ -391,7 +424,7 @@ def read_tree(
                     tree = ast.parse(decode_python(data), filename=rel)
                     compile(tree, rel, "exec")
                     # Source-location consumers keep their anchor, not a fabricated old __file__.
-                    if any(isinstance(n, ast.Name) and n.id == "__file__" for n in ast.walk(tree)):
+                    if location_sensitive(tree):
                         role, reason = "preserved", "source-relative filesystem anchor"
                     elif path.parent in resources and any(
                         isinstance(node, ast.Call)
@@ -412,9 +445,7 @@ def read_tree(
             reference_sets[rel] = referenced(path, source, data=data, tree=tree)
         if rel in ignored:
             role, reason = "preserved", "matched .gitignore rule"
-        result.files.append(
-            FileRecord(rel, digest(data), len(data), module, package, role, owner, reason)
-        )
+        result.files.append(FileRecord(rel, sha256, size, module, package, role, owner, reason))
     result.excluded.sort()
     _apply_references(source, result, reference_sets)
     _preserve_compiled_fallbacks(result)

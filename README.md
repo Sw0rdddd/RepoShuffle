@@ -2,11 +2,11 @@
 
 **Reshape Python source trees. Keep logical imports.**
 
-![Version](https://img.shields.io/badge/version-0.3.1-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.3.2-2563eb?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10–3.13-3776ab?style=flat-square)
 ![Interface](https://img.shields.io/badge/interface-CLI%20%2F%20API-475569?style=flat-square)
 
-**English** · [简体中文](README_zh.md) · [Evaluation](docs/evaluation-0.3.1.md) · [Limitations](docs/limitations.md)
+**English** · [简体中文](README_zh.md) · [Evaluation](docs/evaluation-0.3.2.md) · [Limitations](docs/limitations.md)
 
 ---
 
@@ -15,7 +15,7 @@
 | **Flat** | Collect implementation files at one level; resolve duplicate names with numeric suffixes |
 | **Random** | Generate grouped directory trees, controlled by seed, complexity, and depth |
 
-Packages within one source root share an allocation pool; independent roots stay separate. Tests, docs, resources, and configuration stay in place by default. Public imports usually need no changes. Output is self-contained, with no RepoShuffle runtime dependency.
+Packages within one source root share an allocation pool; independent roots stay separate. Flit follows single-package delivery boundaries. Tests, docs, resources, and configuration stay in place by default. Output is self-contained: public imports usually need no changes, physical imports reuse canonical module identities, and namespace paths remain extensible.
 
 ## ⚡ Quick start
 
@@ -60,6 +60,7 @@ python -m pytest tests/
 | `--seed INTEGER` | Random seed; generated and recorded if omitted |
 | `--max-depth 1..5` | Maximum random-directory depth, default `3`; does not force multiple levels |
 | `--complexity 0..1` | Random mode only, default `0.7`; higher values favor smaller groups, richer branching, and more levels |
+| `--subproject RELATIVE_PATH` | Select one project inside a workspace; selection rules are relative to it |
 | `--include PATH_OR_PATTERN` | Limit implementation selection; repeatable; other files are still copied in place |
 | `--exclude PATH_OR_PATTERN` | Keep matching files or directories in place; repeatable |
 | `-o, --output PATH` | Paired output container; parent must exist; `shuffle` only |
@@ -69,6 +70,9 @@ python -m pytest tests/
 ```bash
 # Tune the tree and choose an output location
 reposhuffle shuffle ./demo --seed 42 --complexity 0.85 --max-depth 2 -o ./results/demo-pair
+
+# Process one project inside a workspace
+reposhuffle shuffle ./workspace --subproject services/api --seed 42
 
 # Select implementation areas with repeatable include / exclude options
 reposhuffle shuffle ./demo --include 'backend/**' --include 'lib/**' --exclude 'backend/vendor/**'
@@ -107,24 +111,28 @@ else:
 ```
 
 - `inspect_project`: report source discovery and preservation reasons.
-- `build_plan`: read-only planning and in-memory rendering; no target modules or build hooks are executed.
-- `apply_plan`: write paired output; omit `output` for the default sibling directory. If inputs, the directory inventory, or the plan change after validation, build a new plan.
+- `build_plan`: read-only planning; changed content is rendered in memory, while unchanged assets remain disk-backed. No target code is executed.
+- `apply_plan`: publish paired output with streaming and hash verification; omit `output` for the default sibling directory. If inputs, the directory inventory, or the plan change after validation, build a new plan.
+
+The API also accepts `subproject="services/api"`. `plan.compatibility` summarizes build adapters, relocation ratios, preservation reasons, and risks—not runtime verification.
 
 ## 🛡️ Validation boundaries
 
 Conversion runs static compilation, target checks, and inventory checks. **It does not prove functional equivalence, install dependencies, or run target tests.** File and traceback paths change; source scanning, custom loaders, special builds, and type checking may need adaptation. Symbolic links are not automatically followed. This is not source encryption.
 
-See the [12-repository evaluation](docs/evaluation-0.3.1.md) and [known limitations](docs/limitations.md) for failures and unverified scenarios (both in Chinese).
+See the [12-repository evaluation](docs/evaluation-0.3.2.md) and [known limitations](docs/limitations.md) for failures and unverified scenarios (both in Chinese).
 
 ## Development
 
 ```bash
 python -m pip install -e '.[dev]'
-python -m ruff check src tests
-python -m ruff format --check src tests
+python -m ruff check src tests scripts
+python -m ruff format --check src tests scripts
 python -c "from pathlib import Path; Path('.tmp').mkdir(exist_ok=True)"
 python -m pytest -q --basetemp=.tmp/pytest
 python -m build --outdir .tmp/dist
 ```
 
 CI is configured for Windows / Linux × Python 3.10–3.13; passing status depends on actual runs.
+
+[Evaluation profiles](evaluation/python.json) record source commits, dependencies, and test scopes. The [evaluation harness](scripts/evaluate.py) supports additional repositories, multiple seeds, and isolated wheel installation. See `--help`; `--output` requires a new directory by default; `--append --projects ...` adds new repositories without replacing existing results. Real-repository checks run weekly or manually, with raw evidence uploaded as CI artifacts. The harness executes upstream builds and tests; use an isolated environment.

@@ -1,0 +1,320 @@
+{
+  "requests": {
+    "url": "https://github.com/psf/requests.git",
+    "revision": "611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60",
+    "module": "requests",
+    "source_paths": [
+      "src"
+    ],
+    "tests": [
+      "tests/test_utils.py",
+      "tests/test_structures.py",
+      "tests/test_hooks.py",
+      "tests/test_packages.py",
+      "tests/test_help.py",
+      "tests/test_adapters.py"
+    ],
+    "dependencies": [
+      "blinker==1.9.0",
+      "brotlicffi==1.2.1.0",
+      "certifi==2026.10.23",
+      "cffi==2.1.1",
+      "charset-normalizer==3.5.2",
+      "click==8.5.0",
+      "colorama==0.4.6",
+      "coverage==7.17.0",
+      "cryptography==50.0.2",
+      "decorator==5.3.1",
+      "execnet==2.1.2",
+      "Flask==3.1.3",
+      "greenlet==3.5.6",
+      "httpbin==0.10.4",
+      "idna==3.20",
+      "iniconfig==2.3.1",
+      "itsdangerous==2.2.0",
+      "Jinja2==3.1.6",
+      "MarkupSafe==3.0.4",
+      "packaging==26.3",
+      "pluggy==1.7.0",
+      "pycparser==3.12",
+      "Pygments==2.21.0",
+      "PySocks==1.7.1",
+      "pytest==9.1.1",
+      "pytest-cov==7.1.0",
+      "pytest-httpbin==2.1.0",
+      "pytest-mock==3.17.0",
+      "pytest-xdist==3.8.0",
+      "six==1.17.0",
+      "trustme==1.2.1",
+      "urllib3==2.8.0",
+      "Werkzeug==3.1.9",
+      "build>=1",
+      "wheel",
+      "setuptools>=68"
+    ]
+  },
+  "flask": {
+    "url": "https://github.com/pallets/flask.git",
+    "revision": "d086db856be187255b8ec61ef409357393020f32",
+    "module": "flask",
+    "source_paths": [
+      "src"
+    ],
+    "tests": [
+      "tests"
+    ],
+    "dependencies": [
+      "asgiref==3.13.0",
+      "blinker==1.9.0",
+      "click==8.5.0",
+      "colorama==0.4.6",
+      "iniconfig==2.3.1",
+      "itsdangerous==2.2.0",
+      "Jinja2==3.1.6",
+      "MarkupSafe==3.0.4",
+      "packaging==26.3",
+      "pluggy==1.7.0",
+      "Pygments==2.21.0",
+      "pytest==9.1.1",
+      "python-dotenv==1.2.4",
+      "Werkzeug==3.1.9",
+      "build>=1",
+      "wheel",
+      "setuptools>=68"
+    ]
+  },
+  "rich": {
+    "url": "https://github.com/Textualize/rich.git",
+    "revision": "9d8f9a372cc5916fd4781fec207ced7ddac2f08f",
+    "module": "rich",
+    "source_paths": [],
+    "tests": [
+      "tests"
+    ],
+    "dependencies": [
+      "attrs==26.1.0",
+      "colorama==0.4.6",
+      "iniconfig==2.3.1",
+      "markdown-it-py==4.2.0",
+      "mdurl==0.1.2",
+      "packaging==26.3",
+      "pluggy==1.7.0",
+      "Pygments==2.19.2",
+      "pytest==9.1.1",
+      "typing_extensions==4.16.0",
+      "build>=1",
+      "wheel",
+      "setuptools>=68"
+    ]
+  },
+  "lark": {
+    "url": "https://github.com/lark-parser/lark.git",
+    "revision": "9a4fb9c7458e8155636773a3cded0016d52516da",
+    "module": "lark",
+    "source_paths": [],
+    "tests": [
+      "tests/__main__.py"
+    ],
+    "dependencies": [
+      "atomicwrites==1.4.1",
+      "colorama==0.4.6",
+      "iniconfig==2.3.1",
+      "interegular==0.3.3",
+      "packaging==26.3",
+      "pluggy==1.7.0",
+      "Pygments==2.21.0",
+      "pytest==9.1.1",
+      "regex==2026.9.29",
+      "build>=1",
+      "wheel",
+      "setuptools>=68"
+    ]
+  },
+  "packaging": {
+    "url": "https://github.com/pypa/packaging.git",
+    "revision": "f124fb7f2a18e41a5593f4c5c47d63db6f49f0d1",
+    "module": "packaging",
+    "source_paths": [
+      "src"
+    ],
+    "tests": [
+      "tests"
+    ],
+    "dependencies": [
+      "colorama==0.4.6",
+      "hypothesis==6.170.12",
+      "iniconfig==2.3.1",
+      "pluggy==1.7.0",
+      "pretend==1.0.9",
+      "Pygments==2.21.0",
+      "pyparsing==3.3.3",
+      "pytest==9.1.1",
+      "sortedcontainers==2.4.0",
+      "tomli==2.5.0",
+      "tomli_w==1.2.0",
+      "build>=1",
+      "wheel",
+      "setuptools>=68"
+    ]
+  },
+  "sqlalchemy": {
+    "url": "https://github.com/sqlalchemy/sqlalchemy.git",
+    "revision": "5c2970e9e5cb233ed530c274d96c73ebdbdbfc8a",
+    "module": "sqlalchemy",
+    "source_paths": [
+      "lib"
+    ],
+    "tests": [
+      "test/base",
+      "test/sql",
+      "test/orm/test_unitofwork.py",
+      "--db",
+      "sqlite",
+      "--db",
+      "sqlite"
+    ],
+    "dependencies": [
+      "colorama==0.4.6",
+      "execnet==2.1.2",
+      "greenlet==3.5.6",
+      "iniconfig==2.3.1",
+      "packaging==26.3",
+      "pluggy==1.7.0",
+      "Pygments==2.21.0",
+      "pytest==9.1.1",
+      "pytest-xdist==3.8.0",
+      "typing_extensions==4.16.0",
+      "build>=1",
+      "wheel",
+      "setuptools>=68"
+    ]
+  },
+  "django": {
+    "url": "https://github.com/django/django.git",
+    "revision": "e9414948e9660ee4c167eebb187710ee3031d9d8",
+    "module": "django",
+    "source_paths": [],
+    "tests": [
+      "utils_tests"
+    ],
+    "dependencies": [
+      "asgiref==3.13.0",
+      "sqlparse==0.6.0",
+      "tzdata==2026.5",
+      "build>=1",
+      "wheel",
+      "setuptools>=68"
+    ],
+    "runner": "django"
+  },
+  "sphinx": {
+    "url": "https://github.com/sphinx-doc/sphinx.git",
+    "revision": "1ddf1981c4aac4ff72bfb4a97e05909d55c3a149",
+    "module": "sphinx",
+    "source_paths": [],
+    "tests": [
+      "tests/test_util"
+    ],
+    "dependencies": [
+      "alabaster==1.0.0",
+      "babel==2.18.0",
+      "certifi==2026.10.23",
+      "charset-normalizer==3.5.2",
+      "colorama==0.4.6",
+      "defusedxml==0.7.1",
+      "docutils==0.23",
+      "execnet==2.1.2",
+      "idna==3.20",
+      "imagesize==2.0.1",
+      "iniconfig==2.3.1",
+      "Jinja2==3.1.6",
+      "MarkupSafe==3.0.4",
+      "packaging==26.3",
+      "pluggy==1.7.0",
+      "Pygments==2.21.0",
+      "pytest==9.1.1",
+      "pytest-xdist==3.8.0",
+      "requests==2.34.2",
+      "roman-numerals==4.1.0",
+      "snowballstemmer==3.1.1",
+      "sphinxcontrib-applehelp==2.0.0",
+      "sphinxcontrib-devhelp==2.0.0",
+      "sphinxcontrib-htmlhelp==2.1.0",
+      "sphinxcontrib-jsmath==2.0.0",
+      "sphinxcontrib-qthelp==2.0.0",
+      "sphinxcontrib-serializinghtml==2.0.0",
+      "typing_extensions==4.16.0",
+      "urllib3==2.8.0",
+      "build>=1",
+      "wheel",
+      "setuptools>=68"
+    ]
+  },
+  "boltons": {
+    "url": "https://github.com/mahmoud/boltons.git",
+    "revision": "d31d821d56c8f7756af9c30a864077f2e5855321",
+    "module": "boltons",
+    "source_paths": [],
+    "tests": [
+      "--doctest-modules",
+      "boltons",
+      "tests"
+    ],
+    "dependencies": [
+      "colorama==0.4.6",
+      "iniconfig==2.3.1",
+      "packaging==26.3",
+      "pluggy==1.7.0",
+      "Pygments==2.21.0",
+      "pytest==9.1.1",
+      "python-dateutil==3.0.0",
+      "pytz==2026.5",
+      "six==1.17.0",
+      "tzdata==2026.5",
+      "build>=1",
+      "wheel",
+      "setuptools>=68"
+    ]
+  },
+  "click": {
+    "url": "https://github.com/pallets/click.git",
+    "revision": "fd183b2ced1cb5857784fe7fb22f4982f671f098",
+    "module": "click",
+    "source_paths": ["src"],
+    "tests": ["tests"],
+    "dependencies": [
+      "build==1.6.1", "colorama==0.4.6", "iniconfig==2.3.1", "packaging==26.3",
+      "pluggy==1.7.0", "pyproject_hooks==1.3.3", "pytest==8.3.5",
+      "setuptools==84.2.1", "wheel==0.48.0"
+    ]
+  },
+  "attrs": {
+    "url": "https://github.com/python-attrs/attrs.git",
+    "revision": "3dca08ce5bbe673d7df25f44f3dda92505d1043d",
+    "module": "attrs",
+    "source_paths": ["src"],
+    "tests": ["tests"],
+    "env": {"SETUPTOOLS_SCM_PRETEND_VERSION": "25.3.0"},
+    "dependencies": [
+      "build==1.6.1", "cloudpickle==3.1.1", "colorama==0.4.6", "execnet==2.1.2",
+      "hypothesis==6.170.12", "iniconfig==2.3.1", "packaging==26.3", "pluggy==1.7.0",
+      "Pygments==2.21.0", "Pympler==1.1", "pyproject_hooks==1.3.3", "pytest==9.1.1",
+      "pytest-xdist==3.8.0", "pywin32==312; sys_platform == 'win32'",
+      "setuptools==84.2.1", "sortedcontainers==2.4.0", "wheel==0.48.0"
+    ]
+  },
+  "jinja2": {
+    "url": "https://github.com/pallets/jinja.git",
+    "revision": "15206881c006c79667fe5154fe80c01c65410679",
+    "module": "jinja2",
+    "source_paths": ["src"],
+    "tests": ["tests"],
+    "dependencies": [
+      "attrs==26.1.0", "babel==2.17.0", "build==1.6.1", "cffi==2.1.1", "colorama==0.4.6",
+      "idna==3.20", "iniconfig==2.3.1", "MarkupSafe==3.0.4", "outcome==1.3.0.post0",
+      "packaging==26.3", "pluggy==1.7.0", "pycparser==3.12", "Pygments==2.21.0",
+      "pyproject_hooks==1.3.3", "pytest==9.1.1", "setuptools==84.2.1", "sniffio==1.3.1",
+      "sortedcontainers==2.4.0", "trio==0.30.0", "wheel==0.48.0"
+    ]
+  }
+}
