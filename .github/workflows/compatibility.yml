@@ -93,3 +93,5 @@ jobs:
             .tmp/compatibility/*/*.xml
             .tmp/compatibility/*/*-reports/**/*.xml
             .tmp/compatibility/*/dependencies.txt
+            .tmp/compatibility/*/compiler-inputs.gradle
+            .tmp/compatibility/*/*-compiler-inputs/**/*

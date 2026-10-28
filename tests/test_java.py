@@ -175,13 +175,13 @@ def test_production_package_names_are_not_mistaken_for_test_scopes(project):
     assert plan.mapping["src/test/java/demo/Test.java"] == "src/test/java/demo/Test.java"
 
 
-def test_broad_explicit_root_does_not_escalate_auxiliary_java_inputs(project):
+def test_explicit_compiler_root_does_not_escalate_auxiliary_java_inputs(project):
     files = sources()
     for scope in ("test", "testFixtures", "integrationTest", "it"):
         files[f"src/{scope}/java/demo/Data.java"] = "not Java; a fixture"
     files["src/main/resources/demo/Data.java"] = "not Java; a resource"
     source = project(files)
-    plan = build_plan(source, source_dirs=["src"], seed=42)
+    plan = build_plan(source, source_dirs=["src/main/java"], seed=42)
     assert plan.ok, plan.to_dict()
     for path in files:
         if "/Data.java" in path or path == "src/test/java/demo/Test.java":
@@ -235,6 +235,94 @@ def test_maven_filters_preserve_membership_or_block(project):
     plan = build_plan(source)
     assert not plan.ok
     assert any("compiler source selection" in diagnostic.message for diagnostic in plan.diagnostics)
+
+
+@pytest.mark.parametrize("root", ["src", "src/main", "src/main/java/demo"])
+def test_explicit_root_must_match_known_maven_compiler_boundary(project, root):
+    source = project(sources())
+    plan = build_plan(source, source_dirs=[root], seed=42)
+    assert not plan.ok
+    assert any("compiler root" in item.message for item in plan.inspection.diagnostics)
+
+
+def test_maven_literal_custom_and_additional_roots_keep_actual_boundaries(project):
+    pom = POM.replace("<build>", "<build><sourceDirectory>production</sourceDirectory>").replace(
+        "</plugins>",
+        "<plugin><artifactId>build-helper-maven-plugin</artifactId><executions><execution><goals><goal>add-source</goal></goals><configuration><sources><source>additional</source></sources></configuration></execution></executions></plugin></plugins>",
+    )
+    source = project(
+        {
+            "pom.xml": pom,
+            "production/demo/Main.java": "package demo; class Main {}",
+            "additional/demo/Extra.java": "package demo; class Extra {}",
+        }
+    )
+    plan = build_plan(source, source_dirs=["production", "additional"], seed=42)
+    assert plan.ok, plan.to_dict()
+    assert plan.mapping["production/demo/Main.java"].startswith("production/_internal_code/")
+    assert plan.mapping["additional/demo/Extra.java"].startswith("additional/_internal_code/")
+    assert not build_plan(source, source_dirs=["production/demo"]).ok
+
+
+def test_maven_cannot_relocate_only_compiler_excluded_sources(project):
+    pom = POM.replace(
+        "<version>3.13.0</version>",
+        "<version>3.13.0</version><configuration><excludes><exclude>**/Unused.java</exclude></excludes></configuration>",
+    )
+    source = project(
+        {
+            **sources(),
+            "pom.xml": pom,
+            "src/main/java/excluded/Unused.java": "package excluded; class Unused {}",
+        }
+    )
+    plan = build_plan(source, include=["src/main/java/excluded/**"], seed=42)
+    assert not plan.ok
+    assert any("excluded" in item.message for item in plan.diagnostics)
+
+
+@pytest.mark.parametrize("system", ["maven", "gradle"])
+def test_ignored_build_metadata_is_copied_without_semantic_discovery(project, system):
+    build = "pom.xml" if system == "maven" else "build.gradle"
+    source = project(
+        {
+            **sources(build),
+            ".gitignore": "vendor/\n",
+            "vendor/pom.xml": "invalid XML",
+            "vendor/build.gradle": "invalid DSL",
+            "vendor/src/main/java/Unused.java": "not Java",
+            "vendor/target/payload.txt": "ignored but preserved",
+        }
+    )
+    plan = build_plan(source, seed=42)
+    assert plan.ok, plan.to_dict()
+    assert [unit.root for unit in plan.inspection.source_units] == ["src/main/java"]
+    output = apply_plan(plan)
+    for record in plan.inspection.files:
+        if record.path.startswith("vendor/"):
+            assert plan.mapping[record.path] == record.path
+            assert (output / "shuffled" / record.path).read_bytes() == (
+                source / record.path
+            ).read_bytes()
+
+
+def test_reincluded_build_keeps_ignored_parent_pom_out_of_filter_analysis(project):
+    source = project(
+        {
+            **sources(),
+            ".gitignore": "vendor/*\n!vendor/active/\n",
+            "vendor/pom.xml": "invalid XML",
+            "vendor/active/pom.xml": POM,
+            "vendor/active/src/main/java/demo/Active.java": "package demo; class Active {}",
+        }
+    )
+    plan = build_plan(source, seed=42)
+    assert plan.ok, plan.to_dict()
+    assert plan.mapping["vendor/pom.xml"] == "vendor/pom.xml"
+    assert (
+        plan.mapping["vendor/active/src/main/java/demo/Active.java"]
+        != "vendor/active/src/main/java/demo/Active.java"
+    )
 
 
 def test_java_dry_run_does_not_execute_target_or_compile(project, monkeypatch, capsys):
@@ -291,6 +379,67 @@ def test_java_compile_and_run_preserves_package_access_identity_and_resources(
         assert result.stdout.strip() == "ok"
 
 
+def test_gradle_test_compilation_cannot_prove_production_migration(project, tmp_path):
+    tool = os.environ.get("REPOSHUFFLE_GRADLE") or shutil.which("gradle")
+    if not tool:
+        pytest.skip("gradle not installed; set REPOSHUFFLE_GRADLE")
+    from scripts.evaluate import (
+        compiled_relocation,
+        compiler_inputs,
+        gradle_compiler_arguments,
+        jar_inventory,
+    )
+
+    files = sources("build.gradle.kts")
+    files["settings.gradle.kts"] = 'rootProject.name = "demo"\n'
+    files["build.gradle.kts"] += (
+        'val omitted = "**/Unused.java"\n'
+        "sourceSets.main { java.exclude(omitted) }\n"
+        'sourceSets.test { java.srcDir("src/main/java") }\n'
+    )
+    files["src/main/java/excluded/Unused.java"] = "package excluded; public class Unused {}"
+    plan = build_plan(
+        project(files),
+        source_dirs=["src/main/java"],
+        include=["src/main/java/excluded/**"],
+        seed=42,
+    )
+    assert plan.ok, plan.to_dict()
+    assert plan.layout["moved_files"] == 1
+    output = apply_plan(plan)
+    results = []
+    inventories = []
+    for label in ("original", "shuffled"):
+        snapshot = output / label
+        process = subprocess.run(
+            [tool, "--no-daemon", *gradle_compiler_arguments(tmp_path, label), "clean", "build"],
+            cwd=snapshot,
+            capture_output=True,
+            text=True,
+            timeout=240,
+            check=False,
+        )
+        assert process.returncode == 0, process.stdout + process.stderr
+        assert (snapshot / "build/classes/java/test/excluded/Unused.class").is_file()
+        inventory = jar_inventory(snapshot, ["build/libs/*.jar"])
+        assert inventory and all(
+            "excluded/Unused.class" not in classes for classes in inventory.values()
+        )
+        inventories.append(inventory)
+        results.append(
+            {
+                "compiler_inputs": compiler_inputs(
+                    snapshot, "gradle", tmp_path / f"{label}-compiler-inputs"
+                )
+            }
+        )
+    assert inventories[0] == inventories[1]
+    coverage = compiled_relocation(plan.mapping, *results)
+    assert not coverage["complete"]
+    assert coverage["missing_original"] == ["src/main/java/excluded/Unused.java"]
+    assert coverage["missing_shuffled"] == [plan.mapping["src/main/java/excluded/Unused.java"]]
+
+
 @pytest.mark.parametrize("system", ["maven", "gradle"])
 @pytest.mark.parametrize("multi", [False, True])
 def test_standard_build_collects_relocated_sources(project, tmp_path, system, multi):
@@ -299,7 +448,14 @@ def test_standard_build_collects_relocated_sources(project, tmp_path, system, mu
     )
     if not tool:
         pytest.skip(f"{system} not installed; set REPOSHUFFLE_{system.upper()}")
-    from scripts.evaluate import compare, jar_inventory, junit_results
+    from scripts.evaluate import (
+        compare,
+        compiled_relocation,
+        compiler_inputs,
+        gradle_compiler_arguments,
+        jar_inventory,
+        junit_results,
+    )
 
     build_file = "pom.xml" if system == "maven" else "build.gradle.kts"
     files = sources(build_file)
@@ -337,14 +493,21 @@ def test_standard_build_collects_relocated_sources(project, tmp_path, system, mu
             "settings.gradle.kts", ""
         )
     source = project(files)
-    output = apply_plan(build_plan(source, seed=42))
+    plan = build_plan(source, seed=42)
+    output = apply_plan(plan)
     baseline = None
     for label in ("original", "shuffled"):
         snapshot = output / label
         args = (
             [tool, "-B", "clean", "package"]
             if system == "maven"
-            else [tool, "--no-daemon", "clean", "build"]
+            else [
+                tool,
+                "--no-daemon",
+                *gradle_compiler_arguments(tmp_path, label),
+                "clean",
+                "build",
+            ]
         )
         result = subprocess.run(
             args, cwd=snapshot, capture_output=True, text=True, timeout=240, check=False
@@ -360,9 +523,12 @@ def test_standard_build_collects_relocated_sources(project, tmp_path, system, mu
         )
         tests = junit_results(list(snapshot.glob(report_pattern)), 0, snapshot)
         inventory = jar_inventory(snapshot, [jar_pattern])
+        inputs = compiler_inputs(snapshot, system, tmp_path / f"{label}-compiler-inputs")
+        assert inputs["exit"] == 0, inputs
+        assert not any("/src/test/" in "/" + path for path in inputs["files"])
         assert tests["complete"] and tests["counts"] == {"passed": 1}
         if baseline is None:
-            baseline = (tests, inventory)
+            baseline = (tests, inventory, inputs)
         else:
             comparison = compare(baseline[0], tests)
             assert comparison["comparable"]
@@ -371,6 +537,11 @@ def test_standard_build_collects_relocated_sources(project, tmp_path, system, mu
                 for key in ("added_nodes", "removed_nodes", "changed_nodes", "new_failures")
             )
             assert inventory == baseline[1]
+            coverage = compiled_relocation(
+                plan.mapping, {"compiler_inputs": baseline[2]}, {"compiler_inputs": inputs}
+            )
+            assert coverage["complete"], coverage
+            assert coverage["moved_sources"] == plan.layout["moved_files"]
         result = subprocess.run(
             [shutil.which("java"), "-cp", os.pathsep.join(map(str, jars)), "demo.Main"],
             capture_output=True,

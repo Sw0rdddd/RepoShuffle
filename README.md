@@ -2,7 +2,7 @@
 
 **Reshape Python and Java source trees. Preserve logical identities.**
 
-![Version](https://img.shields.io/badge/version-0.4.0-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.4.1-2563eb?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10–3.13-3776ab?style=flat-square)
 ![Interface](https://img.shields.io/badge/interface-CLI%20%2F%20API-475569?style=flat-square)
 
@@ -148,7 +148,7 @@ In this command:
 - Repeat `--source-dir` for multiple actual production roots. Explicit roots replace the default discovery scope; they **do not add or change Maven/Gradle compiler inputs**.
 - To limit which files move, use `--include` / `--exclude`, not a broader or narrower source root. These patterns are also relative to the selected project, for example `--include 'src/main/java/demo/**'`.
 
-The standard `src/main/java` above is auto-detected, so normally omit `--source-dir src/main/java`. Passing `./workspace/services/api` directly also removes the need for `--subproject`. Java explicit-root handling has [known boundary issues](docs/review.md); do not broaden an actual source root to its parent, such as `src`.
+The standard `src/main/java` above is auto-detected, so normally omit `--source-dir src/main/java`. Passing `./workspace/services/api` directly also removes the need for `--subproject`. 0.4.1 rejects broader or narrower roots than known Maven compiler boundaries; do not replace an actual root with a parent such as `src`. Unknown build models still need independent build verification; see [boundaries and fixes](docs/review.md).
 
 Also available as `python -m reposhuffle`. Results are JSON; redirect stdout to save a report. Exit code `0` means the current operation passed; `2` indicates an input, conversion, or file error.
 
@@ -197,7 +197,7 @@ The API also accepts `subproject="services/api"`. `plan.compatibility` summarize
 
 Conversion runs Python static compilation or Java source-byte/boundary checks, plus shared target and inventory checks. **It does not prove functional equivalence, install dependencies, or run target tests.** File and traceback paths change; source scanning, custom loaders, special builds, and type checking may need adaptation. Symbolic links are not automatically followed. This is not source encryption.
 
-**0.4.0** has local tool/controlled-fixture validation, but its full real-repository CI comparison has not been run. Later review found unresolved issues; passing historical tests does not cover them. Current status, comparison limits and original historical results are maintained in [evaluation](docs/evaluation.md), with open findings in [review](docs/review.md) (Chinese).
+**0.4.1** fixes the four review findings and requires strict production-compiler input coverage for relocated Java sources. See the [local validation record](docs/evaluation-0.4.1.md); full real-repository results belong to Actions runs for the corresponding commit, not historical passes. Methods and limits are maintained in [evaluation](docs/evaluation.md), with fix tracking in [review](docs/review.md) (Chinese).
 
 ## Development
 

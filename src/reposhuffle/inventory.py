@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from pathspec import GitIgnoreSpec
@@ -76,7 +77,12 @@ def _is_ignored(
     return matched
 
 
-def _walk_tree(source: Path, result: Inspection) -> tuple[list[Path], set[str]]:
+def _walk_tree(
+    source: Path,
+    result: Inspection,
+    *,
+    exclude_directory: Callable[[Path], bool] | None = None,
+) -> tuple[list[Path], set[str]]:
     """Share traversal, exclusions and link checks between analysis and validation."""
     if not source.is_dir():
         raise ShuffleError(f"Not a project directory: {source}")
@@ -104,6 +110,9 @@ def _walk_tree(source: Path, result: Inspection) -> tuple[list[Path], set[str]]:
         for name in sorted(dirs):
             path = Path(root) / name
             rel = path.relative_to(source).as_posix()
+            ignored_directory = _is_ignored(path, scopes, blocked, is_directory=True)
+            if not ignored_directory and exclude_directory is not None and exclude_directory(path):
+                result.inventory_excludes.append(rel)
             if (
                 rel in result.inventory_excludes
                 or name in EXCLUDED_DIRS
@@ -117,7 +126,7 @@ def _walk_tree(source: Path, result: Inspection) -> tuple[list[Path], set[str]]:
                 )
             else:
                 result.directories.append(rel)
-                contexts[path] = (_is_ignored(path, scopes, blocked, is_directory=True), scopes)
+                contexts[path] = (ignored_directory, scopes)
                 kept.append(name)
         dirs[:] = kept
         for name in sorted(files):

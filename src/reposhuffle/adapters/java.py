@@ -8,7 +8,6 @@ No target scripts, effective POMs or Gradle models are executed during planning.
 from __future__ import annotations
 
 import collections
-import os
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
@@ -19,7 +18,7 @@ except ImportError:
     import tomli as tomllib
 
 from ..contents import SnapshotContents, file_hash
-from ..inventory import EXCLUDED_DIRS, _walk_tree, matches
+from ..inventory import _walk_tree, matches
 from ..layout import NumberedLayout
 from ..models import Diagnostic, FileRecord, Inspection, Plan, ShuffleError, SourceUnit
 from ..transform import relocate, storage_prefix
@@ -71,67 +70,83 @@ def _inside(source: Path, project: Path, raw: str) -> str:
     return path.relative_to(source).as_posix()
 
 
-def _projects(source: Path) -> tuple[dict[Path, str], list[str]]:
-    """Find build boundaries, pruning caches/output before the content inventory."""
+def _build_output(path: Path) -> bool:
+    return path.name in _ARTIFACTS and (
+        (path.parent / "src/main/java").is_dir()
+        or any((path.parent / name).is_file() for name in _BUILD_FILES | _SETTINGS)
+    )
+
+
+def _projects(source: Path, paths: list[Path], ignored: set[str]) -> dict[Path, str]:
+    """Discover semantics only from the shared, nonignored inventory."""
+    builds: dict[Path, set[str]] = {}
+    for path in paths:
+        relative = path.relative_to(source)
+        if relative.as_posix() in ignored or _AUXILIARY.intersection(relative.parts[:-1]):
+            continue
+        if path.name in _BUILD_FILES | _SETTINGS:
+            builds.setdefault(path.parent, set()).add(path.name)
     projects = {}
-    excluded = []
-    for directory, dirs, files in os.walk(source, followlinks=False):
-        current = Path(directory)
-        names = set(files)
+    for directory, names in sorted(builds.items()):
         if "pom.xml" in names and names.intersection(_BUILD_FILES - {"pom.xml"}):
-            raise ShuffleError(f"Ambiguous Maven/Gradle project: {current.relative_to(source)}")
-        if names.intersection(_BUILD_FILES | _SETTINGS):
-            projects[current] = "maven" if "pom.xml" in names else "gradle"
-        standard_root = (current / "src/main/java").is_dir()
-        if current not in projects and standard_root:
-            ancestors = [base for base in projects if current.is_relative_to(base)]
-            if ancestors and projects[max(ancestors, key=lambda base: len(base.parts))] == "gradle":
-                projects[current] = "gradle"
-        unit = current in projects or standard_root
-        kept = []
-        for name in sorted(dirs):
-            path = current / name
-            if name in EXCLUDED_DIRS or (unit and name in _ARTIFACTS):
-                if name in _ARTIFACTS:
-                    excluded.append(path.relative_to(source).as_posix())
-                continue
-            if (
-                name not in _AUXILIARY
-                and not path.is_symlink()
-                and not getattr(path, "is_junction", lambda: False)()
-            ):
-                kept.append(name)
-        dirs[:] = kept
-    return projects, sorted(excluded)
+            raise ShuffleError(f"Ambiguous Maven/Gradle project: {directory.relative_to(source)}")
+        projects[directory] = "maven" if "pom.xml" in names else "gradle"
+    for path in paths:
+        relative = path.relative_to(source).as_posix()
+        if relative in ignored or not relative.endswith(".java"):
+            continue
+        if "/src/main/java/" not in "/" + relative:
+            continue
+        prefix = ("/" + relative).split("/src/main/java/", 1)[0].lstrip("/")
+        if _AUXILIARY.intersection(PurePosixPath(prefix).parts):
+            continue
+        directory = source / prefix
+        ancestors = [base for base in projects if directory.is_relative_to(base)]
+        if ancestors and projects[max(ancestors, key=lambda base: len(base.parts))] == "gradle":
+            projects.setdefault(directory, "gradle")
+    return projects
 
 
-def _maven_root(project: Path, source: Path, configured: bool, result: Inspection) -> str:
+def _maven_roots(
+    project: Path, source: Path, configured: bool, result: Inspection
+) -> tuple[list[str], bool]:
     path = project / "pom.xml"
     relative = path.relative_to(source).as_posix()
     try:
         document = ET.fromstring(path.read_bytes())
-        # Normalize namespace once so the rules apply to ordinary and fixture POMs.
         for element in document.iter():
             element.tag = element.tag.rsplit("}", 1)[-1]
-        for plugin in document.findall(".//plugin"):
-            artifact = plugin.findtext("artifactId", "")
-            if (
-                artifact == "build-helper-maven-plugin"
-                and not configured
-                and any(goal.text == "add-source" for goal in plugin.findall(".//goal"))
-            ):
-                raise ValueError(
-                    "Additional generated/custom source roots require java.source-dirs"
-                )
-        if not configured and document.find(".//profiles//sourceDirectory") is not None:
+        raw_roots = [document.findtext("build/sourceDirectory", "src/main/java")]
+        profiles = document.findall(".//profiles//sourceDirectory")
+        if profiles and not configured:
             raise ValueError("Profile-dependent source roots require java.source-dirs")
-        raw = document.findtext("build/sourceDirectory", "src/main/java").strip()
-        if not raw and not configured:
-            raise ValueError("Empty Maven sourceDirectory; configure java.source-dirs")
-        return _inside(source, project, raw) if not configured else ""
+        raw_roots.extend(node.text or "" for node in profiles)
+        unknown = False
+        for plugin in document.findall(".//plugin"):
+            if plugin.findtext("artifactId") == "build-helper-maven-plugin" and any(
+                goal.text == "add-source" for goal in plugin.findall(".//goal")
+            ):
+                if not configured:
+                    raise ValueError(
+                        "Additional generated/custom source roots require java.source-dirs"
+                    )
+                nodes = plugin.findall(".//configuration/sources/source")
+                unknown = unknown or not nodes
+                raw_roots.extend(node.text or "" for node in nodes)
+        roots = []
+        for raw in raw_roots:
+            raw = raw.strip()
+            if not raw and not configured:
+                raise ValueError("Empty Maven sourceDirectory; configure java.source-dirs")
+            unresolved = raw.replace("${project.basedir}", "").replace("${basedir}", "")
+            if configured and (not raw or "${" in unresolved):
+                unknown = True
+                continue
+            roots.append(_inside(source, project, raw))
+        return roots, unknown
     except (ET.ParseError, ValueError) as exc:
         result.diagnostics.append(Diagnostic("JAVA_BUILD_CONFIGURATION", relative, str(exc)))
-        return ""
+        return [], False
 
 
 def _ant_match(path: str, pattern: str) -> bool:
@@ -160,7 +175,10 @@ def _validate_maven_filters(plan: Plan) -> None:
     """
     units = [unit for unit in plan.inspection.source_units if unit.build_system == "maven"]
     for record in plan.inspection.files:
-        if PurePosixPath(record.path).name != "pom.xml":
+        if (
+            PurePosixPath(record.path).name != "pom.xml"
+            or record.reason == "matched .gitignore rule"
+        ):
             continue
         project = PurePosixPath(record.path).parent
         affected = [unit for unit in units if PurePosixPath(unit.project).is_relative_to(project)]
@@ -204,6 +222,10 @@ def _validate_maven_filters(plan: Plan) -> None:
                             continue
                         old = before.relative_to(root).as_posix()
                         new = PurePosixPath(target).relative_to(root).as_posix()
+                        if not selected(old):
+                            raise ValueError(
+                                f"{record.path}: compiler source selection: cannot relocate excluded source {original}"
+                            )
                         if selected(old) != selected(new):
                             raise ValueError(
                                 f"{record.path}: relocation changes compiler source selection for {original}; path filters are not rewritten"
@@ -230,22 +252,25 @@ class JavaAdapter:
         source = source.expanduser().resolve()
         if not source.is_dir():
             raise ShuffleError(f"Not a project directory: {source}")
-        projects, exclusions = _projects(source)
-        result = Inspection(source, language=self.name, inventory_excludes=exclusions)
-        paths, ignored = _walk_tree(source, result)
+        result = Inspection(source, language=self.name)
+        paths, ignored = _walk_tree(source, result, exclude_directory=_build_output)
+        projects = _projects(source, paths, ignored)
+        active = {path for path in paths if path.relative_to(source).as_posix() not in ignored}
         if not result.ok:
             return result
         configured = source_dirs if source_dirs is not None else _configuration(source)
         roots: dict[str, SourceUnit] = {}
+        compiler_roots: dict[Path, tuple[list[str], bool]] = {}
         for project, system in sorted(projects.items()):
-            root = ""
+            discovered = []
             if system == "maven":
-                root = _maven_root(project, source, configured is not None, result)
+                discovered, unknown = _maven_roots(project, source, configured is not None, result)
+                compiler_roots[project] = (discovered, unknown)
             else:
-                root = (project / "src/main/java").relative_to(source).as_posix()
+                discovered = [(project / "src/main/java").relative_to(source).as_posix()]
                 for name in ("build.gradle", "build.gradle.kts"):
                     build = project / name
-                    if build.is_file():
+                    if build in active:
                         text = build.read_text(encoding="utf-8-sig")
                         if configured is None and re.search(
                             r"\b(?:srcDir|srcDirs|setSrcDirs|setSource)\b", text
@@ -266,27 +291,11 @@ class JavaAdapter:
                                     "Path-filtered Java inputs are not safely adaptable statically.",
                                 )
                             )
-            if root and (source / root).is_dir() and configured is None:
-                roots[root] = SourceUnit(
-                    root, project.relative_to(source).as_posix(), "main", system
-                )
-        # Gradle subprojects may inherit all build configuration from their parent.
-        for path in paths:
-            relative = path.relative_to(source).as_posix()
-            if not relative.endswith(".java") or "/src/main/java/" not in "/" + relative:
-                continue
-            prefix = ("/" + relative).split("/src/main/java/", 1)[0].lstrip("/")
-            if _AUXILIARY.intersection(PurePosixPath(prefix).parts):
-                continue
-            project = source / prefix
-            ancestors = [
-                (base, system) for base, system in projects.items() if project.is_relative_to(base)
-            ]
-            if ancestors:
-                _, system = max(ancestors, key=lambda item: len(item[0].parts))
-                if system == "gradle" and configured is None:
-                    root = str(PurePosixPath(prefix) / "src/main/java")
-                    roots.setdefault(root, SourceUnit(root, prefix or ".", "main", system))
+            for root in discovered:
+                if (source / root).is_dir() and configured is None:
+                    roots[root] = SourceUnit(
+                        root, project.relative_to(source).as_posix(), "main", system
+                    )
         if configured is not None:
             roots = {}
             for raw in configured:
@@ -304,6 +313,17 @@ class JavaAdapter:
                             f"No Maven/Gradle build boundary for source directory: {raw}"
                         )
                     project, system = max(ancestors, key=lambda item: len(item[0].parts))
+                    if system == "maven":
+                        known, unknown = compiler_roots[project]
+                        overlaps = any(
+                            PurePosixPath(root).is_relative_to(PurePosixPath(boundary))
+                            or PurePosixPath(boundary).is_relative_to(PurePosixPath(root))
+                            for boundary in known
+                        )
+                        if root not in known and (not unknown or overlaps):
+                            raise ValueError(
+                                f"Configured source directory must match a Maven compiler root: {raw}; known roots: {known}"
+                            )
                     if any(
                         part in {"test", "tests", "resources", "generated", "build", "target"}
                         for part in PurePosixPath(root).parts

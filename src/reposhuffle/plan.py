@@ -127,8 +127,17 @@ def build_plan(
         changed = {c["target"] if c["kind"] == "move" else c["path"] for c in plan.changes}
         changed.update(plan.generated)
         adapter.validate(plan, changed)
-        if len({p.casefold() for p in plan.contents}) != len(plan.contents):
-            raise ShuffleError("Case-insensitive output collision")
+        files = set(plan.contents)
+        directories = set(plan.directories)
+        directories.update(
+            parent.as_posix()
+            for path in files | directories
+            for parent in PurePosixPath(path).parents
+            if parent != PurePosixPath(".")
+        )
+        targets = files | directories
+        if files & directories or len({path.casefold() for path in targets}) != len(targets):
+            raise ShuffleError("Case-insensitive file/directory output collision")
         hashes = dict(plan._content_hashes())
         for record in inspection.files:
             if (

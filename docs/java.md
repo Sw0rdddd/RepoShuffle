@@ -1,6 +1,6 @@
 # Java 使用指南
 
-首期提供 random 物理迁移，不支持 flat。当前存在[已复现的开放问题](review.md)，不能将其描述为对所有标准 Maven/Gradle 工程的完整兼容保证。
+首期提供 random 物理迁移，不支持 flat。0.4.1 对[四项审查问题](review.md)增加修复与回归；这不构成对所有 Maven/Gradle 工程的完整兼容保证。
 
 ```bash
 reposhuffle inspect ./demo --language java
@@ -17,7 +17,7 @@ reposhuffle shuffle ./demo --language java --mode random --seed 42
 
 ## 显式生产源码根
 
-源码根应与构建工具**实际递归编译的生产根一致**。选择其中一部分文件用 `--include` / `--exclude`，不要通过扩大 `--source-dir` 到 `src` 等父目录选择范围：当前实现未可靠验证这种扩大，可能把文件移出编译输入。
+源码根应与构建工具**实际递归编译的生产根一致**。选择其中一部分文件用 `--include` / `--exclude`，不要通过扩大 `--source-dir` 到 `src` 等父目录选择范围：已知字面 Maven 编译根不允许这样扩大或缩小；无法静态确认的根仍需实际编译输入验证。
 
 ```bash
 reposhuffle shuffle ./demo --language java --source-dir module/src/main/java

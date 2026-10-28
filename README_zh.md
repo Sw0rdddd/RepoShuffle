@@ -2,7 +2,7 @@
 
 **重排 Python / Java 源码结构，保留逻辑身份。**
 
-![Version](https://img.shields.io/badge/version-0.4.0-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.4.1-2563eb?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10–3.13-3776ab?style=flat-square)
 ![Interface](https://img.shields.io/badge/interface-CLI%20%2F%20API-475569?style=flat-square)
 
@@ -148,7 +148,7 @@ reposhuffle shuffle ./workspace --subproject services/api --language java --sour
 - `--source-dir` 可重复列出多个实际生产根；显式指定后，以所列根替代默认发现范围。它只告诉工具源码在哪里，**不会让 Maven/Gradle 增加或改变编译目录**。
 - 只想限制哪些文件被移动，用 `--include` / `--exclude`，不要扩大或缩小源码根来代替筛选；它们的路径也相对于选定项目根，例如 `--include 'src/main/java/demo/**'`。
 
-上例的标准 `src/main/java` 能自动识别，实际使用可省略 `--source-dir src/main/java`。也可以直接输入 `./workspace/services/api`，此时无需 `--subproject`。当前 Java 显式源码根仍有[已知边界问题](docs/review.md)，不要把实际根扩大写成 `src` 等父目录。
+上例的标准 `src/main/java` 能自动识别，实际使用可省略 `--source-dir src/main/java`。也可以直接输入 `./workspace/services/api`，此时无需 `--subproject`。0.4.1 会拒绝扩大或缩小已知 Maven 编译根；不要把实际根写成 `src` 等父目录。未知构建模型仍需独立构建验证，见[边界与修复记录](docs/review.md)。
 
 也可用 `python -m reposhuffle`。结果为 JSON，可重定向 stdout 保存报告；退出码 `0` 表示当前操作通过，`2` 表示输入、转换或文件错误。
 
@@ -197,7 +197,7 @@ API 同样支持 `subproject="services/api"`。`plan.compatibility` 汇总构建
 
 转换仅执行 Python 静态编译或 Java 原字节/源码边界检查，以及公共目标和清单检查，**不证明功能等价，也不自动安装依赖或运行目标测试**。文件路径和回溯会变化；源码扫描、自定义加载器、特殊构建和类型检查可能需要适配。符号链接不自动跟随；这不是源码加密工具。
 
-**0.4.0** 已有本地工具/受控工程验证，完整真实仓库 CI 对照尚未执行。后续审查发现仍有未修复问题，历史单测通过不覆盖这些场景。当前状态、对照缺口及原始历史结果统一见[测评](docs/evaluation.md)，开放问题见[审查记录](docs/review.md)。
+**0.4.1** 修复四项审查问题，并补充生产编译输入与迁移覆盖的严格验收。验证范围见[本地记录](docs/evaluation-0.4.1.md)，完整真实仓库结果以相应提交的 Actions 为准；历史结果不自动覆盖当前版本。方法与边界统一见[测评](docs/evaluation.md)，修复跟踪见[审查记录](docs/review.md)。
 
 ## 开发
 

@@ -309,9 +309,84 @@ def jar_inventory(snapshot: Path, patterns: list[str]) -> dict:
     return inventory
 
 
+_GRADLE_COMPILER_TRACE = """import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.api.plugins.JavaPluginExtension
+import groovy.json.JsonOutput
+
+gradle.beforeProject { project ->
+    project.plugins.withId('java') {
+        def main = project.extensions.getByType(JavaPluginExtension).sourceSets.getByName('main')
+        project.tasks.named(main.compileJavaTaskName, JavaCompile).configure { compile ->
+            compile.doLast {
+                def directory = new File(System.getProperty('reposhuffle.compilerInputs'))
+                directory.mkdirs()
+                def report = File.createTempFile('compile-', '.json', directory)
+                report.setText(JsonOutput.toJson(compile.source.files.collect {
+                    it.canonicalPath
+                }.sort()), 'UTF-8')
+            }
+        }
+    }
+}
+"""
+
+
+def gradle_compiler_arguments(work: Path, snapshot_name: str) -> list[str]:
+    script = work / "compiler-inputs.gradle"
+    script.write_text(_GRADLE_COMPILER_TRACE, encoding="utf-8")
+    traces = work / f"{snapshot_name}-compiler-inputs"
+    traces.mkdir()
+    return [
+        "--no-build-cache",
+        "--rerun-tasks",
+        "--init-script",
+        str(script),
+        f"-Dreposhuffle.compilerInputs={traces}",
+    ]
+
+
+def compiler_inputs(snapshot: Path, system: str, traces: Path | None = None) -> dict:
+    """Read compiler-selected paths, never infer binary names from Java filenames."""
+    if system == "maven":
+        reports = sorted(
+            snapshot.glob("**/maven-status/maven-compiler-plugin/compile/**/inputFiles.lst")
+        )
+    else:
+        reports = sorted(traces.glob("compile-*.json")) if traces is not None else []
+    files = set()
+    for report in reports:
+        if system == "maven" and traces is not None:
+            target = traces / report.relative_to(snapshot)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(report, target)
+        text = report.read_text(encoding="utf-8-sig")
+        values = text.splitlines() if system == "maven" else json.loads(text)
+        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+            raise ValueError(f"Invalid compiler input report: {report.name}")
+        for value in values:
+            path = Path(value).resolve()
+            if path.is_relative_to(snapshot.resolve()) and path.suffix == ".java":
+                files.add(path.relative_to(snapshot.resolve()).as_posix())
+    return {"exit": 0 if files else 1, "files": sorted(files), "reports": len(reports)}
+
+
+def compiled_relocation(mapping: dict[str, str], original: dict, shuffled: dict) -> dict:
+    moved = {old: new for old, new in mapping.items() if old != new and old.endswith(".java")}
+    before = set(original.get("compiler_inputs", {}).get("files", []))
+    after = set(shuffled.get("compiler_inputs", {}).get("files", []))
+    missing_original = sorted(set(moved) - before)
+    missing_shuffled = sorted(set(moved.values()) - after)
+    return {
+        "complete": bool(moved) and not missing_original and not missing_shuffled,
+        "moved_sources": len(moved),
+        "missing_original": missing_original,
+        "missing_shuffled": missing_shuffled,
+    }
+
+
 class JavaRunner:
     language = "java"
-    required_evidence = ("build_tool", "artifact_inventory")
+    required_evidence = ("build_tool", "artifact_inventory", "compiler_inputs")
 
     def setup(self, profile, args, work):
         self.env = os.environ.copy()
@@ -353,8 +428,13 @@ class JavaRunner:
             tool["error"] = "Build tool version differs from profile"
         if tool["exit"] != 0:
             return {"exit": 1, "complete": False, "counts": {}, "cases": {}, "build_tool": tool}
+        compiler_args = (
+            gradle_compiler_arguments(work, snapshot_name)
+            if profile["build_system"] == "gradle"
+            else []
+        )
         executed = run(
-            [*command, *profile["tasks"]],
+            [*command, *compiler_args, *profile["tasks"]],
             snapshot,
             work / f"{snapshot_name}-tests.log",
             self.env,
@@ -373,6 +453,9 @@ class JavaRunner:
             **results,
             "build_tool": tool,
             "artifact_inventory": {"exit": 0 if inventory else 1, "jars": inventory},
+            "compiler_inputs": compiler_inputs(
+                snapshot, profile["build_system"], work / f"{snapshot_name}-compiler-inputs"
+            ),
         }
 
 
@@ -469,6 +552,10 @@ def evaluate(name: str, profile: dict, args) -> dict:
                     else:
                         variant["tests"] = result
                         variant["comparison"] = compare(baseline, result)
+                        if language == "java":
+                            variant["compiled_relocation"] = compiled_relocation(
+                                plan.mapping, baseline, result
+                            )
                         if "artifact_inventory" in baseline:
                             variant["comparison"]["artifact_classes_equal"] = baseline[
                                 "artifact_inventory"
@@ -510,6 +597,7 @@ def acceptable(report: dict) -> bool:
         if report.get("language") == "java" and (
             comparison.get("artifact_classes_equal") is not True
             or variant.get("layout", {}).get("moved_files", 0) <= 0
+            or variant.get("compiled_relocation", {}).get("complete") is not True
         ):
             return False
         if comparison.get("summary_equal") is False:

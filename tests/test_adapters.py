@@ -71,6 +71,53 @@ def test_source_dirs_are_validated_for_discovery_and_planning(project, value):
             operation(source, source_dirs=value)
 
 
+@pytest.mark.parametrize("language", ["python", "java"])
+def test_storage_prefix_avoids_case_insensitive_files_and_directories(project, language):
+    if language == "java":
+        root = "src/main/java"
+        files = {
+            "pom.xml": "<project/>",
+            f"{root}/demo/Main.java": "package demo; public class Main {}",
+        }
+    else:
+        root = "demo"
+        files = {"demo/__init__.py": "", "demo/main.py": "VALUE=42\n"}
+    files[f"{root}/_INTERNAL_code/data.txt"] = "keep"
+    files[f"{root}/_Internal1_runtime.py"] = "keep"
+    source = project(files)
+    plan = build_plan(source, language=language, seed=42)
+    assert plan.ok, plan.to_dict()
+    assert all("/_internal2_code" in zone for zone in plan.storage_roots.values())
+    output = apply_plan(plan)
+    assert (output / "shuffled" / root / "_INTERNAL_code/data.txt").read_text() == "keep"
+
+
+@pytest.mark.parametrize("conflict", ["directory-case", "file-directory"])
+def test_shared_validation_checks_target_directories(project, monkeypatch, conflict):
+    source = project(
+        {
+            "pom.xml": "<project/>",
+            "src/main/java/demo/A.java": "package demo; class A {}",
+            "src/main/java/demo/B.java": "package demo; class B {}",
+        }
+    )
+
+    def targets(self, zone, names):
+        if conflict == "directory-case":
+            return {
+                old: f"{zone}/{'Module' if name == 'A.java' else 'module'}/{name}"
+                for old, name in names.items()
+            }
+        return {
+            old: f"{zone}/{'A.java/' if name == 'B.java' else ''}{name}"
+            for old, name in names.items()
+        }
+
+    monkeypatch.setattr(NumberedLayout, "targets", targets)
+    with pytest.raises(ShuffleError, match="collision"):
+        build_plan(source, seed=42)
+
+
 def test_language_selection_does_not_execute_build_files(project):
     source = project(
         {

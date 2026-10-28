@@ -264,6 +264,15 @@ def test_java_evaluation_uses_shared_pairing_and_strict_artifacts(tmp_path, monk
             )
             with zipfile.ZipFile(cwd / "target/demo.jar", "w") as archive:
                 archive.writestr("demo/Main.class", b"class-fixture")
+            inputs = (
+                cwd
+                / "target/maven-status/maven-compiler-plugin/compile/default-compile/inputFiles.lst"
+            )
+            inputs.parent.mkdir(parents=True)
+            inputs.write_text(
+                "\n".join(str(path.resolve()) for path in cwd.glob("src/main/java/**/*.java")),
+                encoding="utf-8",
+            )
         return {"exit": 0, "timeout": False, "seconds": 0}
 
     monkeypatch.setattr(harness, "run", run)
@@ -292,6 +301,77 @@ def test_java_evaluation_uses_shared_pairing_and_strict_artifacts(tmp_path, monk
     report["variants"]["random-42"]["comparison"]["artifact_classes_equal"] = False
     assert not harness.acceptable(report)
     report["variants"] = {}
+    assert not harness.acceptable(report)
+
+
+@pytest.mark.parametrize("system", ["maven", "gradle"])
+def test_compiler_inputs_record_actual_paths_not_class_filename_guesses(tmp_path, system):
+    snapshot = tmp_path / "snapshot"
+    source = snapshot / "src/main/java/UnexpectedFilename.java"
+    source.parent.mkdir(parents=True)
+    source.write_text("class EntirelyDifferentBinaryName {}", encoding="utf-8")
+    if system == "maven":
+        report = (
+            snapshot
+            / "target/maven-status/maven-compiler-plugin/compile/default-compile/inputFiles.lst"
+        )
+        payload = str(source.resolve()) + "\n"
+    else:
+        report = tmp_path / "traces/compile-one.json"
+        payload = json.dumps([str(source.resolve())])
+    report.parent.mkdir(parents=True)
+    report.write_text(payload, encoding="utf-8")
+    assert harness.compiler_inputs(snapshot, system, tmp_path / "traces")["files"] == [
+        "src/main/java/UnexpectedFilename.java"
+    ]
+    if system == "maven":
+        assert (tmp_path / "traces" / report.relative_to(snapshot)).read_text(
+            encoding="utf-8"
+        ) == payload
+    report.unlink()
+    assert harness.compiler_inputs(snapshot, system, tmp_path / "traces")["exit"] == 1
+
+
+@pytest.mark.parametrize("missing", ["original", "shuffled"])
+def test_java_acceptance_rejects_uncompiled_moves_despite_matching_jar_and_tests(missing):
+    original_path = "src/main/java/excluded/Unused.java"
+    target = "src/main/java/_internal_code/Unused.java"
+    mapping = {original_path: target}
+    original = {
+        "exit": 0,
+        "build_tool": {"exit": 0},
+        "artifact_inventory": {"exit": 0, "jars": {"demo.jar": ["demo/Main.class"]}},
+        "compiler_inputs": {"exit": 0, "files": ["src/main/java/demo/Main.java", original_path]},
+    }
+    shuffled = {
+        **original,
+        "compiler_inputs": {"exit": 0, "files": ["src/main/java/demo/Main.java", target]},
+    }
+    comparison = {
+        "comparable": True,
+        "artifact_classes_equal": True,
+        **{key: [] for key in ("added_nodes", "removed_nodes", "changed_nodes", "new_failures")},
+    }
+    variant = {
+        "plan_ok": True,
+        "layout": {"moved_files": 1},
+        "tests": shuffled,
+        "comparison": comparison,
+        "compiled_relocation": harness.compiled_relocation(mapping, original, shuffled),
+    }
+    report = {
+        "language": "java",
+        "setup": {"exit": 0},
+        "original": original,
+        "variants": {"random-42": variant},
+    }
+    assert harness.acceptable(report)
+    snapshot = original if missing == "original" else shuffled
+    snapshot["compiler_inputs"]["files"] = ["src/main/java/demo/Main.java"]
+    variant["compiled_relocation"] = harness.compiled_relocation(mapping, original, shuffled)
+    assert not variant["compiled_relocation"]["complete"]
+    assert not harness.acceptable(report)
+    del variant["compiled_relocation"]
     assert not harness.acceptable(report)
 
 

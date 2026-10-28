@@ -14,7 +14,7 @@ def storage_prefix(plan: Plan, directory: str) -> str:
         if PurePosixPath(path) != root and PurePosixPath(path).is_relative_to(root)
     }
     prefix, index = "_internal", 0
-    while any(name.startswith(prefix) for name in entries):
+    while any(name.casefold().startswith(prefix.casefold()) for name in entries):
         index += 1
         prefix = f"_internal{index}"
     return prefix
