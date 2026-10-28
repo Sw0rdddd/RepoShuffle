@@ -61,6 +61,31 @@ def test_deterministic_read_only_planning(project, mode):
         assert one.mapping != build_plan(source, mode=mode, seed=43).mapping
 
 
+@pytest.mark.parametrize("mode", ["flat", "random"])
+def test_generated_names_are_neutral_and_avoid_existing_storage(project, mode):
+    source = project(
+        {
+            "demo/__init__.py": "",
+            "demo/_internal_code/data.txt": "keep\n",
+            **{f"demo/worker_{i}.py": "VALUE=1\n" for i in range(8)},
+        }
+    )
+    plan = build_plan(source, mode=mode, seed=42)
+    assert plan.ok, plan.to_dict()
+    assert plan.contents["demo/_internal_code/data.txt"] == b"keep\n"
+    assert all(
+        plan.mapping[f"demo/worker_{i}.py"].startswith("demo/_internal1_code/") for i in range(8)
+    )
+    assert "demo/_internal1_runtime.py" in plan.generated
+    assert "demo/_internal1_routes.py" in plan.generated
+    assert not any("reposhuffle" in path for path in plan.generated)
+    assert not any(b"_reposhuffle" in plan.contents[path] for path in plan.generated)
+    assert "_reposhuffle" not in plan.contents["demo/__init__.py"].decode()
+    assert plan.configuration["layout_version"] == 5
+    if mode == "random":
+        assert plan.to_dict()["layout"]["files_by_depth"] == {"0": 4, "1": 4}
+
+
 def test_flat_names_use_numeric_suffixes_without_overwriting(project):
     source = project(
         {
@@ -128,7 +153,7 @@ def test_random_groups_are_dense_without_empty_intermediate_directories(project,
     assert max(occupancy.values()) - min(occupancy.values()) <= 1
     if count > 1:
         assert min(occupancy.values()) >= 2
-    assert any(str(path).endswith("_reposhuffle_code") for path in occupancy)
+    assert any(str(path).endswith("_internal_code") for path in occupancy)
     directories = {
         str(parent)
         for target in plan.mapping.values()

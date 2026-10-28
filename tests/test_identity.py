@@ -59,21 +59,22 @@ def test_container_prefixed_physical_alias_and_support_name_collision(project, r
         {
             "src/__init__.py": "",
             "src/demo/__init__.py": "",
-            "src/demo/_reposhuffle_aliases.py": "VALUE=7\n",
+            "src/demo/_internal_aliases.py": "VALUE=7\n",
             "src/peer/__init__.py": "",
             "src/peer/worker.py": "VALUE=11\n",
             "pyproject.toml": '[tool.setuptools.packages.find]\nwhere=["src"]\n',
         }
     )
     plan = build_plan(source, mode="flat")
+    assert "src/_internal_code/_internal_aliases_.py" in plan.generated
     physical = ".".join(
-        PurePosixPath(plan.mapping["src/demo/_reposhuffle_aliases.py"]).with_suffix("").parts
+        PurePosixPath(plan.mapping["src/demo/_internal_aliases.py"]).with_suffix("").parts
     )
     output = apply_plan(plan)
     (output / "shuffled/check.py").write_text(
         "import importlib\n"
         f"a=importlib.import_module({physical!r})\n"
-        "b=importlib.import_module('src.demo._reposhuffle_aliases')\n"
+        "b=importlib.import_module('src.demo._internal_aliases')\n"
         "assert a is b and a.VALUE==7\nprint('ok')\n",
         encoding="utf-8",
     )

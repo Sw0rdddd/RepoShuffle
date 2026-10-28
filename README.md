@@ -2,11 +2,11 @@
 
 **Reshape Python source trees. Keep logical imports.**
 
-![Version](https://img.shields.io/badge/version-0.3.3-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.3.4-2563eb?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10–3.13-3776ab?style=flat-square)
 ![Interface](https://img.shields.io/badge/interface-CLI%20%2F%20API-475569?style=flat-square)
 
-**English** · [简体中文](README_zh.md) · [Evaluation](docs/evaluation-0.3.3.md) · [Limitations](docs/limitations.md)
+**English** · [简体中文](README_zh.md) · [Evaluation](docs/evaluation-0.3.4.md) · [Limitations](docs/limitations.md)
 
 ---
 
@@ -52,6 +52,33 @@ python -m pip install -e .
 python -m pytest tests/
 ```
 
+## Random layout example
+
+For a small `sample` package with eight modules, `--mode random --seed 42` produces the following with default complexity/depth (0.3.4, layout version 5):
+
+```text
+# Before                       # After: shuffled/
+sample/                        sample/
+├── __init__.py                 ├── __init__.py
+├── api.py                      ├── _internal_runtime.py
+├── cache.py                    ├── _internal_routes.py
+├── client.py                   └── _internal_code/
+├── config.py                       ├── __init__.py
+├── errors.py                       ├── _internal_aliases.py
+├── models.py                       ├── api.py
+├── parser.py                       ├── client.py
+└── utils.py                        ├── errors.py
+                                   ├── parser.py
+                                   └── module_1/
+                                       ├── __init__.py
+                                       ├── cache.py
+                                       ├── config.py
+                                       ├── models.py
+                                       └── utils.py
+```
+
+Public imports such as `from sample.cache import VALUE` stay unchanged. Tests, resources, and configuration remain in place; runtime/routes/aliases files must be kept.
+
 ## 🎛️ CLI options
 
 | Option | Description |
@@ -86,9 +113,10 @@ Also available as `python -m reposhuffle`. Results are JSON; redirect stdout to 
 - Discovery uses packaging configuration, ordinary packages, and implementation directories—not just `src/`. Set `source-dirs = ["backend", "lib"]` under `[tool.reposhuffle]` in `pyproject.toml` to select roots explicitly.
 - Root and nested project `.gitignore` files are respected, including `!` rules. Matches stay in place even if tracked or selected by `--include`. Unignore parent directories first; global rules and `.git/info/exclude` are not read.
 - `--include` does not inadvertently relocate tests, docs, or fixtures. Git history, virtual environments, caches, and build artifacts are not copied. Input and output must not contain each other.
-- Implementations move into `_reposhuffle_code/`: multiple packages in one source root share storage; a single package uses internal storage. **Flat applies to implementation areas, not the entire repository.**
+- Implementations move into `_internal_code/` (with a numeric prefix suffix on name conflicts): multiple packages in one source root share storage; a single package uses internal storage. **Flat applies to implementation areas, not the entire repository.**
 - Depth starts at storage-root level 0: `--max-depth 3` permits levels 0–3. Complexity controls group size, branching, and depth preferences; nearby values may produce identical layouts.
-- Reproduction requires the same tool and layout versions, inputs, seed, complexity, and other parameters. Current layout version is 4; version 3 layouts are not reproduced.
+- Reproduction requires the same tool and layout versions, inputs, seed, complexity, and other parameters. Current layout version is 5; earlier layouts are not reproduced.
+- In `.md` / `.markdown`, unambiguous local file links and reference definitions are updated to relocated implementations; changes are audited in `manifest.json`. Code examples, directory links, unsupported document syntax/formats, and recognized affected path mentions are left unchanged with `DOCUMENTATION_PATH` warnings in JSON diagnostics. External URLs and logical imports are not rewritten. Link fragments are retained but not verified (`DOCUMENTATION_ANCHOR`); non-UTF-8 documents are not processed (`DOCUMENTATION_ENCODING`). Test/fixture and gitignored documents are never rewritten. The input and `original/` remain unchanged.
 - Package initializers, location-sensitive files, and resource anchors are preserved as needed; scripts retain thin entry points. Module routing tables are required at runtime. See `inspect` fields `role` and `reason` for selection decisions.
 
 </details>
@@ -124,7 +152,7 @@ The API also accepts `subproject="services/api"`. `plan.compatibility` summarize
 
 Conversion runs static compilation, target checks, and inventory checks. **It does not prove functional equivalence, install dependencies, or run target tests.** File and traceback paths change; source scanning, custom loaders, special builds, and type checking may need adaptation. Symbolic links are not automatically followed. This is not source encryption.
 
-See the [10-repository passing suite](docs/evaluation-0.3.3.md) and [known limitations](docs/limitations.md) (both in Chinese). Recorded local Windows/Linux comparisons passed; future full repository validation runs in GitHub Actions. Remote revalidation is pending.
+The **0.3.3** [remote comparison](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/40542911307) passed all 20 jobs: 10 repositories × Windows/Linux, Python 3.13, flat/random, seeds 42/123. This run predates the **0.3.4** naming changes. See [evaluation details](docs/evaluation-0.3.4.md) and [known limitations](docs/limitations.md) (both in Chinese). Full repository validation runs in GitHub Actions.
 
 ## Development
 

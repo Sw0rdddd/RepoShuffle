@@ -317,7 +317,7 @@ def _include_setup_packages(plan: Plan, additions: set[str]) -> None:
     except (cst.ParserSyntaxError, UnicodeError) as exc:
         plan.diagnostics.append(Diagnostic("SETUP_SYNTAX", "setup.py", str(exc)))
         return
-    name = "_reposhuffle_storage_packages"
+    name = "_internal_storage_packages"
     while name in data.decode("utf-8"):
         name += "_"
     changed = False

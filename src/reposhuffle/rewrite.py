@@ -31,10 +31,10 @@ def bootstrap(
     ):
         offset += 1
     code = (
-        f"from .{runtime} import install as _reposhuffle_install\n"
-        f"from .{routes} import ROUTES as _reposhuffle_routes\n"
-        f"_reposhuffle_install(__name__, __file__, _reposhuffle_routes, {prefix!r}, {logical_root!r})\n"
-        f"del _reposhuffle_install, _reposhuffle_routes\n"
+        f"from .{runtime} import install as _internal_install\n"
+        f"from .{routes} import ROUTES as _internal_routes\n"
+        f"_internal_install(__name__, __file__, _internal_routes, {prefix!r}, {logical_root!r})\n"
+        f"del _internal_install, _internal_routes\n"
         f"globals().pop({runtime!r}, None)\n"
         f"globals().pop({routes!r}, None)\n"
     )
@@ -46,7 +46,7 @@ def script_entry(old: str, target: str, data: bytes) -> bytes:
     relative = os.path.relpath(target, str(PurePosixPath(old).parent)).replace("\\", "/")
     header = data.splitlines(keepends=True)[0] if data.startswith(b"#!") else b""
     code = f"""# Generated entry; implementation lives at {relative}.
-def _reposhuffle_launch():
+def _internal_launch():
     from pathlib import Path
     from importlib.machinery import SourceFileLoader
     scope = globals()
@@ -57,8 +57,8 @@ def _reposhuffle_launch():
     if scope.get("__spec__") is not None:
         scope["__spec__"].origin = filename
         scope["__spec__"].loader = loader
-    del scope["_reposhuffle_launch"]
+    del scope["_internal_launch"]
     exec(compile(Path(filename).read_bytes(), filename, "exec", dont_inherit=True), scope)
-_reposhuffle_launch()
+_internal_launch()
 """
     return header + code.encode("utf-8")

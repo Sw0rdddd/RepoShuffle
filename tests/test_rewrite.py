@@ -120,7 +120,7 @@ def test_script_entry_preserves_imports_arguments_and_real_source_path(project, 
     source = project(
         {
             "runner.py": "import sys\ndef main():\n    return len(sys.argv)\nVALUE=7\nif __name__ == '__main__':\n    print(main())\n",
-            "check.py": "import runner, inspect\nassert runner.VALUE==7\nassert 'def main()' in inspect.getsource(runner)\nassert '_reposhuffle_code' in runner.__file__\nprint(runner.main())\n",
+            "check.py": "import runner, inspect\nassert runner.VALUE==7\nassert 'def main()' in inspect.getsource(runner)\nassert '_internal_code' in runner.__file__\nprint(runner.main())\n",
         }
     )
     plan = build_plan(source, mode="random", seed=1)

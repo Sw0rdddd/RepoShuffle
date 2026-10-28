@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reposhuffle"
-version = "0.3.3"
+version = "0.3.4"
 description = "Reorganize Python implementations while preserving public imports and auxiliary trees"
 readme = "README.md"
 requires-python = ">=3.10"

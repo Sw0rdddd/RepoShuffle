@@ -95,13 +95,15 @@ def test_private_support_names_do_not_overwrite_user_files(project, run_module):
     source = project(
         {
             "demo/__init__.py": "",
-            "demo/_reposhuffle_runtime.py": "VALUE=9\n",
+            "demo/_internal_runtime.py": "VALUE=9\n",
             "demo/worker.py": "VALUE=1\n",
-            "main.py": "from demo._reposhuffle_runtime import VALUE\nprint(VALUE)\n",
+            "main.py": "from demo._internal_runtime import VALUE\nprint(VALUE)\n",
         }
     )
     plan = build_plan(source)
     assert plan.ok
+    assert "demo/_internal1_runtime.py" in plan.generated
+    assert "demo/_internal1_routes.py" in plan.generated
     output = apply_plan(plan)
     assert run_module(output / "shuffled", "main") == "9\n"
 
@@ -120,7 +122,7 @@ def test_generated_manifest_contains_actual_checks(project):
     source = project({"main.py": "pass\n"})
     output = apply_plan(build_plan(source))
     report = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert report["tool_version"] == "0.3.3"
+    assert report["tool_version"] == "0.3.4"
     assert report["schema_version"] == 3
     assert report["runtime_validation"]["status"] == "not-run"
     assert report["configuration"]["scope"] == "implementation-only"

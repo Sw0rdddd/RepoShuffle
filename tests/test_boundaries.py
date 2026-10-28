@@ -119,7 +119,7 @@ def test_setup_py_packages_include_storage(project, tmp_path, mode, setup_import
     )
     plan = build_plan(source, mode=mode, seed=42)
     assert plan.ok, plan.to_dict()
-    assert "_reposhuffle_storage_packages" in plan.contents["setup.py"].decode()
+    assert "_internal_storage_packages" in plan.contents["setup.py"].decode()
     output = apply_plan(plan)
     wheels = tmp_path / "wheels"
     env = os.environ.copy()

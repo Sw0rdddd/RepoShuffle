@@ -40,9 +40,9 @@ def test_sibling_packages_share_storage_and_keep_imports(
     plan = build_plan(source, mode=mode, seed=42)
     assert plan.ok, plan.to_dict()
     assert plan.inspection.source_roots == {"alpha": container, "beta": container}
-    assert plan.configuration["layout_version"] == 4
+    assert plan.configuration["layout_version"] == 5
     targets = [plan.mapping[f.path] for f in plan.inspection.files if f.role == "source"]
-    assert all(path.startswith(f"{container}/_reposhuffle_code/") for path in targets)
+    assert all(path.startswith(f"{container}/_internal_code/") for path in targets)
     assert len({path.casefold() for path in targets}) == len(targets)
     assert plan.mapping[f"{container}/beta/anchor.py"] == f"{container}/beta/anchor.py"
     assert plan.mapping == build_plan(source, mode=mode, seed=42).mapping
@@ -100,4 +100,4 @@ def test_explicit_source_boundaries_stay_separate(project, mode):
     for record in plan.inspection.files:
         if record.role == "source":
             area = record.path.split("/")[0]
-            assert plan.mapping[record.path].startswith(f"{area}/_reposhuffle_code/")
+            assert plan.mapping[record.path].startswith(f"{area}/_internal_code/")

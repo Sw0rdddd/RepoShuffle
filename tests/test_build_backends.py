@@ -81,8 +81,8 @@ def test_sdist_to_wheel_is_self_contained(project, tmp_path, backend, mode):
     assert plan.ok, plan.to_dict()
     assert plan.inspection.packages["demo"] == f"{base}/demo"
     if backend in {"poetry", "hatch"}:
-        assert plan.mapping[f"{base}/demo/worker.py"].startswith(f"{base}/_reposhuffle_code/")
-        assert plan.mapping[f"{base}/peer/worker.py"].startswith(f"{base}/_reposhuffle_code/")
+        assert plan.mapping[f"{base}/demo/worker.py"].startswith(f"{base}/_internal_code/")
+        assert plan.mapping[f"{base}/peer/worker.py"].startswith(f"{base}/_internal_code/")
     output = apply_plan(plan)
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
@@ -152,4 +152,4 @@ def test_setup_cfg_find_and_version_anchor(project):
     )
     plan = build_plan(source)
     assert plan.mapping["lib/demo/version.py"] == "lib/demo/version.py"
-    assert b"_reposhuffle_code" in plan.contents["setup.cfg"]
+    assert b"_internal_code" in plan.contents["setup.cfg"]

@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 
 from .compatibility import explain
 from .contents import SnapshotContents
+from .documentation import rewrite_documentation
 from .models import Diagnostic, FileRecord, Inspection, Plan, ShuffleError
 from .project import (
     _logical_storage_packages,
@@ -145,10 +146,10 @@ def _prefix(plan: Plan, directory: str) -> str:
         for path in [*(f.path for f in plan.inspection.files), *plan.inspection.directories]
         if PurePosixPath(path) != root and PurePosixPath(path).is_relative_to(root)
     }
-    prefix, index = "_reposhuffle", 0
+    prefix, index = "_internal", 0
     while any(name.startswith(prefix) for name in entries):
         index += 1
-        prefix = f"_reposhuffle{index}"
+        prefix = f"_internal{index}"
     return prefix
 
 
@@ -248,7 +249,7 @@ def _relocate(plan: Plan, layout: NumberedLayout) -> None:
             physical = PurePosixPath(plan.mapping[record.path]).relative_to(zone).with_suffix("")
             aliases[".".join(physical.parts)] = canonical
         if aliases:
-            runtime_name = "_reposhuffle_aliases"
+            runtime_name = "_internal_aliases"
             while f"{zone}/{runtime_name}.py" in plan.contents:
                 runtime_name += "_"
             logical_storage = next(
@@ -353,7 +354,7 @@ def _layout_stats(plan: Plan) -> dict[str, object]:
             (
                 i
                 for i, part in enumerate(parts)
-                if part.startswith("_reposhuffle") and part.endswith("_code")
+                if part.startswith("_internal") and part.endswith("_code")
             ),
             None,
         )
@@ -444,7 +445,7 @@ def build_plan(
             "exclude": exclude,
             "strategy": "preserve-logical-modules",
             "scope": "implementation-only",
-            "layout_version": 4,
+            "layout_version": 5,
             "allocation_scope": "source-root",
             "respect_gitignore": True,
             "subproject": str(subproject) if subproject is not None else None,
@@ -471,13 +472,20 @@ def build_plan(
             _package(plan, name, root)
         _scripts(plan)
         include_storage_packages(plan)
+        rewrite_documentation(plan)
         plan.directories = sorted(set(plan.directories))
         plan.layout = _layout_stats(plan)
         changed = {c["target"] for c in plan.changes if c["kind"] == "move"}
         changed.update(
             c["path"]
             for c in plan.changes
-            if c["kind"] in {"package-bootstrap", "build-configuration", "setup-configuration"}
+            if c["kind"]
+            in {
+                "package-bootstrap",
+                "build-configuration",
+                "setup-configuration",
+                "documentation-reference",
+            }
         )
         changed.update(plan.generated)
         for path in changed:

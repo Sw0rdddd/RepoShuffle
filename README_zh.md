@@ -2,11 +2,11 @@
 
 **重排 Python 源码结构，保留逻辑导入。**
 
-![Version](https://img.shields.io/badge/version-0.3.3-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.3.4-2563eb?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10–3.13-3776ab?style=flat-square)
 ![Interface](https://img.shields.io/badge/interface-CLI%20%2F%20API-475569?style=flat-square)
 
-[English](README.md) · **简体中文** · [真实仓库测评](docs/evaluation-0.3.3.md) · [局限性](docs/limitations.md)
+[English](README.md) · **简体中文** · [真实仓库测评](docs/evaluation-0.3.4.md) · [局限性](docs/limitations.md)
 
 ---
 
@@ -52,6 +52,33 @@ python -m pip install -e .
 python -m pytest tests/
 ```
 
+## 随机布局示例
+
+一个包含八个模块的小型 `sample` 包，使用 `--mode random --seed 42` 和默认复杂度、深度时，参考结果如下（0.3.4，布局版本 5）：
+
+```text
+# 原始结构                     # 打乱后：shuffled/
+sample/                        sample/
+├── __init__.py                 ├── __init__.py
+├── api.py                      ├── _internal_runtime.py
+├── cache.py                    ├── _internal_routes.py
+├── client.py                   └── _internal_code/
+├── config.py                       ├── __init__.py
+├── errors.py                       ├── _internal_aliases.py
+├── models.py                       ├── api.py
+├── parser.py                       ├── client.py
+└── utils.py                        ├── errors.py
+                                   ├── parser.py
+                                   └── module_1/
+                                       ├── __init__.py
+                                       ├── cache.py
+                                       ├── config.py
+                                       ├── models.py
+                                       └── utils.py
+```
+
+公开导入如 `from sample.cache import VALUE` 无需修改；测试、资源及配置保留原位。runtime/routes/aliases 辅助文件必须保留。
+
 ## 🎛️ CLI 参数
 
 | 参数 | 说明 |
@@ -86,9 +113,10 @@ reposhuffle shuffle ./demo --include 'backend/**' --include 'lib/**' --exclude '
 - 自动识别打包配置、普通包和实现目录，不限于 `src/`。也可在 `pyproject.toml` 的 `[tool.reposhuffle]` 下设置 `source-dirs = ["backend", "lib"]`。
 - 默认遵循项目内根级及嵌套 `.gitignore`，支持 `!`；即使已跟踪或被 `--include` 选中，匹配项仍不移动。父目录须先取消忽略；不读取全局规则或 `.git/info/exclude`。
 - 测试、文档、fixture 不因 `--include` 被意外搬走。Git 历史、虚拟环境、缓存和构建产物不复制；输入与输出不能互相包含。
-- 实现移入 `_reposhuffle_code/`：同一源码根下多包共享存储，单包使用包内存储。**扁平化针对实现区，不是整个仓库。**
+- 实现移入 `_internal_code/`（名称冲突时为前缀追加数字）：同一源码根下多包共享存储，单包使用包内存储。**扁平化针对实现区，不是整个仓库。**
 - 深度从存储根的第 0 层计起，`--max-depth 3` 允许第 0～3 层。复杂度控制目录文件数、分支和层级偏好，相邻值可能产生相同布局。
-- 复现需相同工具及布局版本、输入、种子和复杂度等参数。当前布局版本为 4，不复现版本 3。
+- 复现需相同工具及布局版本、输入、种子和复杂度等参数。当前布局版本为 5，不复现旧版布局。
+- `.md` / `.markdown` 中明确的本地文件链接及引用式链接定义自动指向迁移后的实现，修改记录写入 `manifest.json`。代码示例、目录链接、不支持的文档语法/格式及可识别的受影响路径只在 JSON diagnostics 中发出 `DOCUMENTATION_PATH` 警告，不改写；外部 URL、逻辑导入不改。锚点保留但不验证（`DOCUMENTATION_ANCHOR`）；非 UTF-8 文档不处理（`DOCUMENTATION_ENCODING`）。测试/fixture 和 gitignored 文档不改写。输入项目与 `original/` 均保持原样。
 - 包初始化、位置敏感文件和资源锚点按需保留，脚本保留薄入口。模块路由表是运行必需文件；选择与保留原因可查看 `inspect` 的 `role`、`reason`。
 
 </details>
@@ -124,7 +152,7 @@ API 同样支持 `subproject="services/api"`。`plan.compatibility` 汇总构建
 
 转换仅执行静态编译、目标和清单检查，**不证明功能等价，也不自动安装依赖或运行目标测试**。文件路径和回溯会变化；源码扫描、自定义加载器、特殊构建和类型检查可能需要适配。符号链接不自动跟随；这不是源码加密工具。
 
-公开保留 10 个真实仓库的通过集，见[测评记录](docs/evaluation-0.3.3.md)；本地 Windows/Linux 对照已通过，远端 Actions 尚未复验。后续完整真实仓库验证交给 GitHub Actions，已知限制见[局限性](docs/limitations.md)。
+**0.3.3** 的[远端对照测评](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/40542911307)已全部通过：10 仓库 × Windows/Linux 共 20 个任务，Python 3.13，flat/random，seed=42、123。该运行不包含 **0.3.4** 的中性命名修改。详情见[测评记录](docs/evaluation-0.3.4.md)；完整真实仓库验证交给 GitHub Actions，已知限制见[局限性](docs/limitations.md)。
 
 ## 开发
 
