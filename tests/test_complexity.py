@@ -34,7 +34,7 @@ def test_default_complexity_is_point_seven(project):
     assert plan.layout["files_per_directory_target"] == 6
     output = apply_plan(plan)
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == 3
+    assert manifest["schema_version"] == 4
     assert manifest["configuration"]["complexity"] == 0.7
     assert manifest["layout"] == plan.layout
 

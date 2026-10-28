@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from .adapters import languages
 from .models import VERSION, ShuffleError
 from .output import apply_plan
 from .plan import build_plan, inspect_project
@@ -15,7 +16,7 @@ from .plan import build_plan, inspect_project
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog="reposhuffle",
-        description="Create controlled original/shuffled Python repository pairs.",
+        description="Create controlled original/shuffled repository pairs (Python and Java).",
     )
     root.add_argument("--version", action="version", version=VERSION)
     commands = root.add_subparsers(dest="command", required=True)
@@ -70,6 +71,18 @@ def parser() -> argparse.ArgumentParser:
     )
     for command in (inspect, shuffle):
         command.add_argument(
+            "--language",
+            choices=("auto", *languages()),
+            default="auto",
+            help="Transform one language; ambiguous mixed projects require an explicit choice.",
+        )
+        command.add_argument(
+            "--source-dir",
+            action="append",
+            dest="source_dirs",
+            help="Explicit production source root; repeatable. Does not rewrite build scripts.",
+        )
+        command.add_argument(
             "--subproject",
             type=Path,
             help="Select one project inside a workspace; include/exclude are relative to it.",
@@ -96,13 +109,20 @@ def main(argv: list[str] | None = None) -> int:
                     "--complexity requires --mode random; discovery-only inspect does not use it."
                 )
             result = inspect_project(
-                args.source, include=args.include, exclude=args.exclude, subproject=args.subproject
+                args.source,
+                language=args.language,
+                source_dirs=args.source_dirs,
+                include=args.include,
+                exclude=args.exclude,
+                subproject=args.subproject,
             )
             payload = result.to_dict()
             payload["scope"] = "discovery-only; use --mode for full transformation feasibility"
         else:
             result = build_plan(
                 args.source,
+                language=args.language,
+                source_dirs=args.source_dirs,
                 mode=args.mode,
                 seed=args.seed,
                 max_depth=args.max_depth,

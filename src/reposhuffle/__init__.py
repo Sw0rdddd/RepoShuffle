@@ -1,6 +1,6 @@
-"""Reproducible paired Python repository snapshots for agent experiments."""
+"""Reproducible paired repository snapshots using shared layouts and language adapters."""
 
-from .models import VERSION, Diagnostic, Inspection, Plan, ShuffleError
+from .models import VERSION, Diagnostic, Inspection, Plan, ShuffleError, SourceUnit
 from .output import apply_plan
 from .plan import build_plan, inspect_project
 
@@ -10,6 +10,7 @@ __all__ = [
     "Inspection",
     "Plan",
     "ShuffleError",
+    "SourceUnit",
     "__version__",
     "apply_plan",
     "build_plan",

@@ -16,6 +16,10 @@ class DeferredFile:
     sha256: str
 
 
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
 def file_hash(path: Path) -> tuple[str, int]:
     digest = hashlib.sha256()
     size = 0
@@ -66,6 +70,10 @@ class SnapshotContents(MutableMapping[str, bytes]):
 
     def __contains__(self, key: object) -> bool:
         return key in self._entries
+
+    def move(self, source: str, target: str) -> None:
+        """Transfer a rendered or disk-backed entry without materializing its bytes."""
+        self._entries[target] = self._entries.pop(source)
 
     def hashes(self) -> list[tuple[str, str]]:
         return [

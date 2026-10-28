@@ -98,6 +98,9 @@ def rewrite_documentation(plan: Plan) -> None:
         str(parent) for old in moved for parent in PurePosixPath(old).parents if str(parent) != "."
     }
     for record in plan.inspection.files:
+        # A future adapter may classify text/HTML as implementation, not docs.
+        if record.role in {"source", "script"}:
+            continue
         document = record.path
         suffix = PurePosixPath(document).suffix.lower()
         if suffix not in _DOCUMENTS:

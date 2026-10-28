@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reposhuffle"
-version = "0.3.4"
-description = "Reorganize Python implementations while preserving public imports and auxiliary trees"
+version = "0.4.0"
+description = "Reorganize Python and Java implementations through shared layouts and language adapters"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["libcst>=1.4,<2", "pathspec>=0.12,<2", "tomlkit>=0.13,<1", "tomli>=2; python_version < '3.11'"]

@@ -24,37 +24,72 @@ jobs:
           import json
           import os
           from pathlib import Path
-          profiles = json.loads(Path('evaluation/python.json').read_text())
-          assert profiles, 'No evaluation profiles configured'
+          matrix = []
+          for language in ('python', 'java'):
+              profiles = json.loads(Path(f'evaluation/{language}.json').read_text())
+              assert len(profiles) == 10, f'Expected ten {language} profiles'
+              for name, profile in profiles.items():
+                  matrix.append({'language': language, 'project': name,
+                                 'jdk': profile.get('jdk', 17),
+                                 'build_system': profile.get('build_system', '')})
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              print('projects=' + json.dumps(list(profiles)), file=output)
+              print('projects=' + json.dumps(matrix), file=output)
           PY
 
   compare:
     needs: profiles
-    timeout-minutes: 40
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        project: ${{ fromJSON(needs.profiles.outputs.projects) }}
+        profile: ${{ fromJSON(needs.profiles.outputs.projects) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - uses: actions/setup-java@v4
+        if: matrix.profile.language == 'java'
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.profile.jdk }}
+      - name: Install pinned Maven
+        if: matrix.profile.build_system == 'maven'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          import os
+          import urllib.request
+          import zipfile
+          from pathlib import Path
+          base = 'https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.9/apache-maven-3.9.9-bin.zip'
+          archive = Path(os.environ['RUNNER_TEMP']) / 'maven.zip'
+          urllib.request.urlretrieve(base, archive)
+          with urllib.request.urlopen(base + '.sha512') as response:
+              expected = response.read().decode().split()[0]
+          assert hashlib.sha512(archive.read_bytes()).hexdigest() == expected
+          with zipfile.ZipFile(archive) as bundle:
+              bundle.extractall(archive.parent)
+          binary = archive.parent / 'apache-maven-3.9.9/bin'
+          (binary / 'mvn').chmod(0o755)
+          with open(os.environ['GITHUB_PATH'], 'a') as output:
+              print(binary, file=output)
+          PY
       - run: python -m pip install -e ".[dev]"
       - name: Compare pinned upstream snapshots
-        run: python scripts/evaluate.py --clone --projects ${{ matrix.project }} --output .tmp/compatibility --seeds 42 123 --artifacts
+        run: python scripts/evaluate.py --profiles evaluation/${{ matrix.profile.language }}.json --clone --projects ${{ matrix.profile.project }} --output .tmp/compatibility --seeds 42 123 --artifacts --timeout 900
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: compatibility-${{ matrix.os }}-${{ matrix.project }}
+          name: compatibility-${{ matrix.os }}-${{ matrix.profile.language }}-${{ matrix.profile.project }}
           include-hidden-files: true
           path: |
             .tmp/compatibility/summary.json
             .tmp/compatibility/*/report.json
             .tmp/compatibility/*/*.log
             .tmp/compatibility/*/*.xml
+            .tmp/compatibility/*/*-reports/**/*.xml
             .tmp/compatibility/*/dependencies.txt

@@ -9,7 +9,17 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.3.4"
+VERSION = "0.4.0"
+
+
+@dataclass(frozen=True)
+class SourceUnit:
+    """A source selection/build boundary, independent of language package semantics."""
+
+    root: str
+    project: str = "."
+    kind: str = "implementation"
+    build_system: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +54,9 @@ class Inspection:
     script_roots: list[str] = field(default_factory=list)
     directories: list[str] = field(default_factory=list)
     source_roots: dict[str, str] = field(default_factory=dict)
+    language: str = "python"
+    source_units: list[SourceUnit] = field(default_factory=list)
+    inventory_excludes: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -52,6 +65,9 @@ class Inspection:
     def to_dict(self) -> dict[str, Any]:
         return {
             "source": str(self.source),
+            "language": self.language,
+            "source_units": [asdict(unit) for unit in self.source_units],
+            "inventory_excludes": self.inventory_excludes,
             "ok": self.ok,
             "files": [asdict(f) for f in self.files],
             "excluded": self.excluded,
@@ -81,6 +97,8 @@ class Plan:
     directories: list[str] = field(default_factory=list)
     layout: dict[str, Any] = field(default_factory=dict)
     compatibility: dict[str, Any] = field(default_factory=dict)
+    storage_roots: dict[str, str] = field(default_factory=dict)
+    static_checks: list[str] = field(default_factory=list)
     _validated: str = field(default="", repr=False)
 
     def _content_hashes(self) -> list[tuple[str, str]]:
@@ -110,6 +128,11 @@ class Plan:
     def to_dict(self) -> dict[str, Any]:
         return {
             "source": str(self.inspection.source),
+            "language": self.inspection.language,
+            "source_units": [asdict(unit) for unit in self.inspection.source_units],
+            "inventory_excludes": self.inspection.inventory_excludes,
+            "storage_roots": self.storage_roots,
+            "static_checks": self.static_checks,
             "mode": self.mode,
             "seed": self.seed,
             "configuration": self.configuration,

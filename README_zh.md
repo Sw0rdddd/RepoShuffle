@@ -1,21 +1,21 @@
 # RepoShuffle
 
-**重排 Python 源码结构，保留逻辑导入。**
+**重排 Python / Java 源码结构，保留逻辑身份。**
 
-![Version](https://img.shields.io/badge/version-0.3.4-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.4.0-2563eb?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10–3.13-3776ab?style=flat-square)
 ![Interface](https://img.shields.io/badge/interface-CLI%20%2F%20API-475569?style=flat-square)
 
-[English](README.md) · **简体中文** · [真实仓库测评](docs/evaluation-0.3.4.md) · [局限性](docs/limitations.md)
+[English](README.md) · **简体中文** · [文档](docs/README.md) · [测评](docs/evaluation.md) · [局限性](docs/limitations.md)
 
 ---
 
 | 模式 | 效果 |
 | --- | --- |
-| **Flat** | 实现文件集中到同一层，重名以数字后缀消解 |
+| **Flat**（Python） | 实现文件集中到同一层，重名以数字后缀消解 |
 | **Random** | 生成分组目录树，用种子、复杂度和深度控制布局 |
 
-同一源码根默认跨包混排，独立源码根分别处理；Flit 遵循单包交付边界。测试、文档、资源和配置默认保留原位，公开 import 通常无需修改。输出自包含，物理模块导入复用逻辑模块身份，命名空间路径可动态扩展。
+Python 在同一源码根默认跨包混排，独立源码根分别处理；Flit 遵循单包交付边界。测试、文档、资源和配置默认保留原位，公开 import 通常无需修改。输出自包含，物理模块导入复用逻辑模块身份，命名空间路径可动态扩展。
 
 ## ⚡ 快速开始
 
@@ -52,44 +52,63 @@ python -m pip install -e .
 python -m pytest tests/
 ```
 
-## 随机布局示例
+## Java（仅随机模式）
 
-一个包含八个模块的小型 `sample` 包，使用 `--mode random --seed 42` 和默认复杂度、深度时，参考结果如下（0.3.4，布局版本 5）：
-
-```text
-# 原始结构                     # 打乱后：shuffled/
-sample/                        sample/
-├── __init__.py                 ├── __init__.py
-├── api.py                      ├── _internal_runtime.py
-├── cache.py                    ├── _internal_routes.py
-├── client.py                   └── _internal_code/
-├── config.py                       ├── __init__.py
-├── errors.py                       ├── _internal_aliases.py
-├── models.py                       ├── api.py
-├── parser.py                       ├── client.py
-└── utils.py                        ├── errors.py
-                                   ├── parser.py
-                                   └── module_1/
-                                       ├── __init__.py
-                                       ├── cache.py
-                                       ├── config.py
-                                       ├── models.py
-                                       └── utils.py
+```bash
+reposhuffle shuffle ./java-demo --language java --mode random --seed 42 --dry-run
+reposhuffle shuffle ./java-demo --language java --mode random --seed 42
 ```
 
-公开导入如 `from sample.cache import VALUE` 无需修改；测试、资源及配置保留原位。runtime/routes/aliases 辅助文件必须保留。
+首期面向 Maven/Gradle 递归收集的生产源码，保留文件名、原始字节及 package 声明。测试、资源和描述符留在原位，不生成加载器或原路径源码副本。规划无需 JDK，**不执行 Java 编译**。显式源码根须与实际构建输入一致，当前仍有源码边界和验收漏检等开放问题。详见 [Java 指南](docs/java.md)、[Adapter 架构](docs/architecture.md)及[审查发现](docs/review.md)。
+
+一次只转换一种语言；自动识别优先使用根构建标识，有歧义时要求 `--language`，其他语言保留原位。
+
+## 随机布局示例
+
+两种语言都使用 random、seed=42、默认复杂度 `0.7`、最大深度 `3`，布局版本为 5：
+- **Python**：八个模块，示例在 0.3.4 下实际生成，不作为新增的 0.4.0 验证记录。
+- **Java**：八个生产文件，示例在 0.4.0 下实际生成，源码根自动识别为 `src/main/java`。
+
+```text
+# Python 原始         # Python 随机                   # Java 原始                 # Java 随机
+sample/               sample/                         src/main/java/              src/main/java/
+├── __init__.py       ├── __init__.py                 └── demo/                   └── _internal_code/
+├── api.py            ├── _internal_runtime.py            ├── Main.java               ├── Cache.java
+├── cache.py          ├── _internal_routes.py             ├── api/                    ├── Config.java
+├── client.py         └── _internal_code/                 │   └── Client.java         ├── Main.java
+├── config.py             ├── __init__.py                 ├── core/                   ├── Strings.java
+├── errors.py             ├── _internal_aliases.py        │   ├── Cache.java          └── module_1/
+├── models.py             ├── api.py                      │   └── Engine.java             ├── Client.java
+├── parser.py             ├── client.py                   ├── model/                      ├── Engine.java
+└── utils.py              ├── errors.py                   │   ├── Config.java             ├── Parser.java
+                          ├── parser.py                   │   └── User.java               └── User.java
+                          └── module_1/                   └── util/
+                              ├── __init__.py                 ├── Parser.java
+                              ├── cache.py                    └── Strings.java
+                              ├── config.py
+                              ├── models.py
+                              └── utils.py
+```
+
+**Python**：公开导入如 `from sample.cache import VALUE` 无需修改；测试、资源及配置保留原位。runtime/routes/aliases 辅助文件必须保留。
+
+**Java**：只改变源码存放位置，不改变包。例如 `Cache.java` 移到 `_internal_code/Cache.java`，文件内仍是 `package demo.core;`，调用方仍用 `import demo.core.Cache;`。源码仍位于原编译根 `src/main/java` 内；`pom.xml`、`src/test/java`、`src/main/resources` 保留原位，不生成 Python 的初始化或路由文件。
+
+本示例已分别用 javac 编译两版、生成并运行 JAR，验证导入、反射类名、资源和类清单一致；不代表所有 Maven/Gradle 插件或真实仓库 CI 已通过。
 
 ## 🎛️ CLI 参数
 
 | 参数 | 说明 |
 | --- | --- |
+| `--language auto\|python\|java` | 一次选择一种语言，默认 `auto`；Java 仅支持 random |
+| `--source-dir 相对路径` | 告诉工具生产源码在哪里，相对于选定的项目根；可重复，通常可省略；不修改构建配置 |
 | `--mode flat\|random` | `shuffle` 默认 `random`；`inspect` 加此参数可查看完整计划 |
 | `--seed 整数` | 随机种子；省略则生成并记录 |
 | `--max-depth 1..5` | 随机目录深度上限，默认 `3`；不强制生成多层 |
 | `--complexity 0..1` | 仅限随机模式，默认 `0.7`；越大，文件分组越细、分支和层级越丰富 |
-| `--subproject 相对路径` | 选择工作区中的独立子项目；选择规则相对于该子项目 |
-| `--include 路径或通配符` | 限定实现选择范围，可重复；范围外文件仍复制并保留原位 |
-| `--exclude 路径或通配符` | 匹配文件或目录保留原位，可重复 |
+| `--subproject 相对路径` | 从输入目录中选择一个独立项目，只为该项目生成快照；不写则处理整个输入项目 |
+| `--include 路径或通配符` | 筛选要移动的实现文件，相对于选定的项目根；可重复，其余文件仍复制、保留原位 |
+| `--exclude 路径或通配符` | 筛选不移动的文件或目录，相对于选定的项目根；可重复 |
 | `-o, --output 路径` | 配对输出容器，父目录须存在；仅限 `shuffle` |
 | `--dry-run` | 仅分析，不创建输出；仅限 `shuffle` |
 | `--version` / `--help` | 查看版本 / 帮助 |
@@ -104,6 +123,32 @@ reposhuffle shuffle ./workspace --subproject services/api --seed 42
 # 选择实现范围，可重复传入 include / exclude
 reposhuffle shuffle ./demo --include 'backend/**' --include 'lib/**' --exclude 'backend/vendor/**'
 ```
+
+### `--subproject` 和 `--source-dir` 怎么选？
+
+**一个选项目，一个说明源码位置；通常都不用写。**`--subproject` 是原有参数，`--source-dir` 是新增的源码根参数。
+
+```text
+workspace/                         # 命令的输入目录
+└── services/api/                  # 可独立处理、构建的项目
+    ├── pom.xml
+    └── src/
+        ├── main/java/             # 生产源码根
+        └── test/java/             # 测试，保留原位
+```
+
+```bash
+reposhuffle shuffle ./workspace --subproject services/api --language java --source-dir src/main/java --dry-run
+```
+
+这条命令中：
+
+- `--subproject services/api` 相对于输入目录 `workspace`，选中 `workspace/services/api`。快照只包含 api 项目，不包含工作区的其他项目；不能随意截取仍依赖外部父 POM 或兄弟模块的子模块。
+- `--source-dir src/main/java` 相对于选中的 api 项目，指向 `workspace/services/api/src/main/java`。它不表示只复制这个目录：`pom.xml`、测试、资源等仍随 api 项目复制。
+- `--source-dir` 可重复列出多个实际生产根；显式指定后，以所列根替代默认发现范围。它只告诉工具源码在哪里，**不会让 Maven/Gradle 增加或改变编译目录**。
+- 只想限制哪些文件被移动，用 `--include` / `--exclude`，不要扩大或缩小源码根来代替筛选；它们的路径也相对于选定项目根，例如 `--include 'src/main/java/demo/**'`。
+
+上例的标准 `src/main/java` 能自动识别，实际使用可省略 `--source-dir src/main/java`。也可以直接输入 `./workspace/services/api`，此时无需 `--subproject`。当前 Java 显式源码根仍有[已知边界问题](docs/review.md)，不要把实际根扩大写成 `src` 等父目录。
 
 也可用 `python -m reposhuffle`。结果为 JSON，可重定向 stdout 保存报告；退出码 `0` 表示当前操作通过，`2` 表示输入、转换或文件错误。
 
@@ -150,9 +195,9 @@ API 同样支持 `subproject="services/api"`。`plan.compatibility` 汇总构建
 
 ## 🛡️ 验证边界
 
-转换仅执行静态编译、目标和清单检查，**不证明功能等价，也不自动安装依赖或运行目标测试**。文件路径和回溯会变化；源码扫描、自定义加载器、特殊构建和类型检查可能需要适配。符号链接不自动跟随；这不是源码加密工具。
+转换仅执行 Python 静态编译或 Java 原字节/源码边界检查，以及公共目标和清单检查，**不证明功能等价，也不自动安装依赖或运行目标测试**。文件路径和回溯会变化；源码扫描、自定义加载器、特殊构建和类型检查可能需要适配。符号链接不自动跟随；这不是源码加密工具。
 
-**0.3.3** 的[远端对照测评](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/40542911307)已全部通过：10 仓库 × Windows/Linux 共 20 个任务，Python 3.13，flat/random，seed=42、123。该运行不包含 **0.3.4** 的中性命名修改。详情见[测评记录](docs/evaluation-0.3.4.md)；完整真实仓库验证交给 GitHub Actions，已知限制见[局限性](docs/limitations.md)。
+**0.4.0** 已有本地工具/受控工程验证，完整真实仓库 CI 对照尚未执行。后续审查发现仍有未修复问题，历史单测通过不覆盖这些场景。当前状态、对照缺口及原始历史结果统一见[测评](docs/evaluation.md)，开放问题见[审查记录](docs/review.md)。
 
 ## 开发
 
@@ -167,4 +212,4 @@ python -m build --outdir .tmp/dist
 
 CI 配置：Windows / Linux × Python 3.10–3.13；通过情况以实际运行记录为准。
 
-[测评配置](evaluation/python.json)记录仓库提交、依赖和测试范围；[测评脚本](scripts/evaluate.py)支持新增仓库、多种子对照和 wheel 隔离安装。用 `--help` 查看用法，`--output` 默认须指定全新目录；`--append --projects ...` 可追加新仓库，不覆盖已有结果。真实仓库工作流在推送 `main` 时自动运行，也支持每周一北京时间 00:00 定时和手动运行，原始产物通过 CI 附件提供。测评会执行上游构建和测试，请使用隔离环境。
+[Python 配置](evaluation/python.json)与 [Java 配置](evaluation/java.json)各固定十仓库，共用[测评脚本](scripts/evaluate.py)。测评会执行上游代码，应使用隔离环境；完整真实仓库对照交给 Actions，不在本地或 Docker 重跑。配置范围、验收缺口、触发机制与版本证据统一维护在[测评说明](docs/evaluation.md)。

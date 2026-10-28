@@ -3,39 +3,17 @@
 from __future__ import annotations
 
 import ast
-import fnmatch
-import hashlib
-import os
 import tokenize
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 
-from pathspec import GitIgnoreSpec
-
-from .contents import SnapshotContents, file_hash
-from .models import Diagnostic, FileRecord, Inspection, ShuffleError
+from .contents import SnapshotContents, digest, file_hash
+from .inventory import _walk_tree, matches
+from .models import Diagnostic, FileRecord, Inspection, ShuffleError, SourceUnit
 from .project import discover, identifier
 from .references import location_sensitive, referenced
 
-EXCLUDED_DIRS = {
-    ".git",
-    ".hg",
-    ".svn",
-    ".venv",
-    "venv",
-    "env",
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".tox",
-    ".nox",
-    ".tmp",
-    "node_modules",
-    ".idea",
-    ".vscode",
-}
 BUILD_SCRIPTS = {"setup.py", "conftest.py"}
 NESTED_PROJECT_FILES = {"pyproject.toml", "setup.py", "setup.cfg", "Cargo.toml"}
 AUXILIARY_SCOPES = {
@@ -65,57 +43,9 @@ def _resource_directories(source: Path, paths: list[Path]) -> set[Path]:
     return directories
 
 
-def digest(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 def decode_python(data: bytes) -> str:
     encoding, _ = tokenize.detect_encoding(BytesIO(data).readline)
     return data.decode(encoding)
-
-
-def matches(path: str, patterns: list[str]) -> bool:
-    return any(
-        path == pattern.rstrip("/")
-        or path.startswith(pattern.rstrip("/") + "/")
-        or fnmatch.fnmatchcase(path, pattern)
-        for pattern in patterns
-    )
-
-
-def _walk_error(error: OSError) -> None:
-    raise error
-
-
-def _generated_build(path: Path) -> bool:
-    """Recognise root build outputs without hiding source directories named build."""
-    try:
-        entries = list(path.iterdir())
-    except OSError:
-        return True
-    names = {entry.name for entry in entries}
-    return any(
-        name.startswith(("bdist.", "temp.", "scripts-")) or name in {"lib", "PKG-INFO"}
-        for name in names
-    ) or any(entry.suffix in {".whl", ".egg", ".tar"} for entry in entries)
-
-
-def _is_ignored(
-    path: Path,
-    scopes: list[tuple[Path, GitIgnoreSpec]],
-    blocked: bool,
-    *,
-    is_directory: bool = False,
-) -> bool:
-    if blocked:
-        return True  # Git cannot re-include a file inside an excluded parent.
-    matched = False
-    for base, spec in scopes:
-        relative = path.relative_to(base).as_posix() + ("/" if is_directory else "")
-        include = spec.check_file(relative).include
-        if include is not None:
-            matched = include
-    return matched
 
 
 def _preserve_compiled_fallbacks(result: Inspection) -> None:
@@ -240,94 +170,27 @@ def _apply_references(
     result.files = [records[path] for path in order]
 
 
-def _walk_tree(source: Path, result: Inspection) -> tuple[list[Path], set[str]]:
-    """Share traversal, exclusions and link checks between analysis and validation."""
-    if not source.is_dir():
-        raise ShuffleError(f"Not a project directory: {source}")
-    if (source / "manifest.json").exists() and (source / "shuffled").is_dir():
-        raise ShuffleError("A RepoShuffle output container is not an input project")
-    paths: list[Path] = []
-    ignored: set[str] = set()
-    contexts: dict[Path, tuple[bool, list[tuple[Path, GitIgnoreSpec]]]] = {source: (False, [])}
-    for root, dirs, files in os.walk(source, followlinks=False, onerror=_walk_error):
-        directory = Path(root)
-        blocked, inherited = contexts.pop(directory)
-        scopes = list(inherited)
-        ignore_file = directory / ".gitignore"
-        if not blocked and ignore_file.is_file() and not ignore_file.is_symlink():
-            scopes.append(
-                (
-                    directory,
-                    GitIgnoreSpec.from_lines(
-                        ignore_file.read_text(encoding="utf-8-sig").splitlines()
-                    ),
-                )
-            )
-
-        kept = []
-        for name in sorted(dirs):
-            path = Path(root) / name
-            rel = path.relative_to(source).as_posix()
-            if (
-                name in EXCLUDED_DIRS
-                or name.endswith(".egg-info")
-                or (directory == source and name in {"build", "dist"} and _generated_build(path))
-            ):
-                result.excluded.append(rel + "/")
-            elif path.is_symlink() or getattr(path, "is_junction", lambda: False)():
-                result.diagnostics.append(
-                    Diagnostic("SYMLINK", rel, "Directory links need an explicit copy policy.")
-                )
-            else:
-                result.directories.append(rel)
-                contexts[path] = (_is_ignored(path, scopes, blocked, is_directory=True), scopes)
-                kept.append(name)
-        dirs[:] = kept
-        for name in sorted(files):
-            path = Path(root) / name
-            rel = path.relative_to(source).as_posix()
-            if name in {".git", ".hg", ".svn"} or name.endswith((".pyc", ".pyo")):
-                result.excluded.append(rel)
-            elif path.is_symlink() or not path.is_file():
-                result.diagnostics.append(
-                    Diagnostic(
-                        "SYMLINK",
-                        rel,
-                        "Only regular files are copied; links are not silently followed.",
-                    )
-                )
-            else:
-                if _is_ignored(path, scopes, blocked):
-                    ignored.add(rel)
-                paths.append(path)
-    result.directories.sort()
-    result.excluded.sort()
-    return sorted(paths, key=lambda p: p.relative_to(source).as_posix()), ignored
-
-
-def read_inventory(source: Path) -> Inspection:
-    """Recheck paths and all content hashes without repeating semantic analysis."""
-    source = source.expanduser().resolve()
-    result = Inspection(source)
-    paths, _ = _walk_tree(source, result)
-    for path in paths:
-        sha256, size = file_hash(path)
-        result.files.append(FileRecord(path.relative_to(source).as_posix(), sha256, size))
-    return result
-
-
 def read_tree(
     source: Path,
     *,
     include: list[str] | None = None,
     exclude: list[str] | None = None,
+    source_dirs: list[str] | None = None,
     _contents: SnapshotContents | None = None,
 ) -> Inspection:
     source = source.expanduser().resolve()
     if not source.is_dir():
         raise ShuffleError(f"Not a project directory: {source}")
-    packages, scripts, anchors, source_roots = discover(source)
-    result = Inspection(source, packages=packages, script_roots=scripts, source_roots=source_roots)
+    packages, scripts, anchors, source_roots = discover(source, source_dirs)
+    result = Inspection(
+        source,
+        packages=packages,
+        script_roots=scripts,
+        source_roots=source_roots,
+        source_units=[
+            SourceUnit(root) for root in sorted(set(source_roots.values()) | set(scripts))
+        ],
+    )
     paths, ignored = _walk_tree(source, result)
     nested_roots = {
         path.parent.relative_to(source).as_posix()

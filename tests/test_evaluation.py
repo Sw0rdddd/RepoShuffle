@@ -199,6 +199,119 @@ def test_append_rejects_missing_or_stale_summary(tmp_path):
         harness.main(command)
 
 
+def test_java_merges_report_scopes_without_collapsing_duplicate_nodes(tmp_path):
+    paths = []
+    for module in ("a", "b"):
+        path = tmp_path / module / "target/surefire-reports/TEST-demo.xml"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            '<testsuite><testcase classname="demo.Test" name="same"/>'
+            '<testcase classname="demo.Test" name="same"/></testsuite>',
+            encoding="utf-8",
+        )
+        paths.append(path)
+    result = harness.junit_results(paths, 0, tmp_path)
+    assert result["complete"]
+    assert result["counts"] == {"passed": 4}
+    assert len(result["cases"]) == 2
+    assert all(outcomes == ["passed", "passed"] for outcomes in result["cases"].values())
+    assert not harness.junit_results([], 0, tmp_path)["complete"]
+    assert not harness.junit_results(paths, 2, tmp_path)["complete"]
+
+
+def test_java_evaluation_uses_shared_pairing_and_strict_artifacts(tmp_path, monkeypatch):
+    import zipfile
+
+    source = tmp_path / "sources/demo"
+    (source / "src/main/java/demo").mkdir(parents=True)
+    (source / "src/main/java/demo/Main.java").write_text(
+        "package demo; public class Main {}", encoding="utf-8"
+    )
+    (source / "pom.xml").write_text("<project/>", encoding="utf-8")
+    profile = {
+        "language": "java",
+        "revision": "a" * 40,
+        "jdk": 17,
+        "build_system": "maven",
+        "build_version": "3.9.9",
+        "tasks": ["clean", "verify"],
+        "reports": ["target/surefire-reports/TEST-*.xml"],
+        "artifacts": ["target/*.jar"],
+    }
+    profiles = tmp_path / "profiles.json"
+    profiles.write_text(json.dumps({"demo": profile}), encoding="utf-8")
+    monkeypatch.setattr(
+        harness.subprocess,
+        "check_output",
+        lambda command, **kwargs: "a" * 40 if command[-1] == "HEAD" else "",
+    )
+    monkeypatch.setattr(harness.shutil, "which", lambda command: "mvn")
+    commands = []
+
+    def run(command, cwd, log, env, timeout):
+        if command == ["java", "-version"]:
+            log.write_text('openjdk version "17.0.12"', encoding="utf-8")
+        elif command[-1] == "--version":
+            log.write_text("Apache Maven 3.9.9", encoding="utf-8")
+        else:
+            commands.append(command)
+            assert command[-2:] == ["clean", "verify"]
+            xml = cwd / "target/surefire-reports/TEST-demo.xml"
+            xml.parent.mkdir(parents=True)
+            xml.write_text(
+                '<testsuite><testcase classname="demo.Test" name="value"/></testsuite>',
+                encoding="utf-8",
+            )
+            with zipfile.ZipFile(cwd / "target/demo.jar", "w") as archive:
+                archive.writestr("demo/Main.class", b"class-fixture")
+        return {"exit": 0, "timeout": False, "seconds": 0}
+
+    monkeypatch.setattr(harness, "run", run)
+    output = tmp_path / "results"
+    assert (
+        harness.main(
+            [
+                "--profiles",
+                str(profiles),
+                "--repos-root",
+                str(tmp_path / "sources"),
+                "--output",
+                str(output),
+                "--seeds",
+                "42",
+                "123",
+            ]
+        )
+        == 0
+    )
+    report = json.loads((output / "summary.json").read_text(encoding="utf-8"))["demo"]
+    assert list(report["variants"]) == ["random-42", "random-123"]
+    assert len(commands) == 3
+    assert harness.acceptable(report)
+    assert list((output / "demo/original-reports").rglob("TEST-*.xml"))
+    report["variants"]["random-42"]["comparison"]["artifact_classes_equal"] = False
+    assert not harness.acceptable(report)
+    report["variants"] = {}
+    assert not harness.acceptable(report)
+
+
+def test_java_profiles_pin_ten_real_repositories_and_explicit_build_scopes():
+    import re
+
+    profiles = json.loads(Path("evaluation/java.json").read_text(encoding="utf-8"))
+    assert len(profiles) == 10
+    assert {profile["build_system"] for profile in profiles.values()} == {"maven", "gradle"}
+    for profile in profiles.values():
+        assert profile["language"] == "java"
+        assert re.fullmatch(r"[0-9a-f]{40}", profile["revision"])
+        assert profile["url"].startswith("https://github.com/")
+        assert profile["source_dirs"] and profile["reports"] and profile["artifacts"]
+        assert "clean" in profile["tasks"]
+        assert not any(
+            "skip" in task.lower() or task in {"-x", "--exclude-task"} for task in profile["tasks"]
+        )
+
+
 def test_comparison_does_not_confuse_equal_counts_with_equal_nodes():
     original = {"complete": True, "cases": {"a": ["passed"]}}
     transformed = {"complete": True, "cases": {"b": ["passed"]}}

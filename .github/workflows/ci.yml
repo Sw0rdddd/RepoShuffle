@@ -15,6 +15,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.1.0'
       - run: python -m pip install -e ".[dev]"
       - run: python -m ruff check src tests scripts
       - run: python -m ruff format --check src tests scripts

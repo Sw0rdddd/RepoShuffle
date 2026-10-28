@@ -13,9 +13,9 @@ from dataclasses import asdict
 from importlib.metadata import version
 from pathlib import Path, PurePosixPath
 
-from .contents import SnapshotContents, copy_verified
+from .contents import SnapshotContents, copy_verified, digest
+from .inventory import read_inventory
 from .models import VERSION, Inspection, Plan, ShuffleError
-from .scan import digest, read_inventory
 
 
 def _remove_tree(path: Path) -> None:
@@ -94,7 +94,7 @@ def apply_plan(plan: Plan, output: str | Path | None = None) -> Path:
         raise ShuffleError("Output and input must not contain one another.")
     if not destination.parent.is_dir():
         raise ShuffleError("Output parent directory must already exist.")
-    fresh = read_inventory(source)
+    fresh = read_inventory(source, inventory_excludes=plan.inspection.inventory_excludes)
     if not _same_inventory(fresh, plan.inspection):
         raise ShuffleError("Input inventory changed since planning; build a new plan.")
     expected_targets = set(plan.mapping.values()) | set(plan.generated)
@@ -143,7 +143,7 @@ def apply_plan(plan: Plan, output: str | Path | None = None) -> Path:
         summary = plan.to_dict()
         summary.update(
             {
-                "schema_version": 3,
+                "schema_version": 4,
                 "tool_version": VERSION,
                 "environment": {
                     "python": sys.version.split()[0],
@@ -152,10 +152,7 @@ def apply_plan(plan: Plan, output: str | Path | None = None) -> Path:
                     "pathspec": version("pathspec"),
                     "tomlkit": version("tomlkit"),
                 },
-                "original_pythonpath": ["src"]
-                if any(f.module and f.path.startswith("src/") for f in plan.inspection.files)
-                else [],
-                "entry_commands_scope": "preserved script entry paths; package imports and configured console entry points retain their names",
+                "entry_commands_scope": "adapter-provided preserved entry commands; verify with the original project build/test procedure",
                 "input_fingerprint": digest(
                     json.dumps(
                         {
@@ -171,14 +168,7 @@ def apply_plan(plan: Plan, output: str | Path | None = None) -> Path:
                 "conversion": "success",
                 "static_validation": {
                     "status": "passed",
-                    "checks": [
-                        "syntax-compilation",
-                        "unique-portable-targets",
-                        "logical-route-targets",
-                        "preserved-auxiliary-content",
-                        "input-inventory",
-                        "paired-file-inventory",
-                    ],
+                    "checks": [*plan.static_checks, "input-inventory", "paired-file-inventory"],
                 },
                 "runtime_validation": {"status": "not-run", "responsibility": "user"},
                 "snapshots": {"original": "original", "shuffled": "shuffled"},
@@ -189,7 +179,7 @@ def apply_plan(plan: Plan, output: str | Path | None = None) -> Path:
         (temporary / "manifest.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        final = read_inventory(source)
+        final = read_inventory(source, inventory_excludes=plan.inspection.inventory_excludes)
         if not _same_inventory(final, fresh):
             raise ShuffleError("Input changed during publication.")
         # Reserve without replacing another process's output; publish manifest last.

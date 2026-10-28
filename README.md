@@ -1,21 +1,21 @@
 # RepoShuffle
 
-**Reshape Python source trees. Keep logical imports.**
+**Reshape Python and Java source trees. Preserve logical identities.**
 
-![Version](https://img.shields.io/badge/version-0.3.4-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.4.0-2563eb?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10–3.13-3776ab?style=flat-square)
 ![Interface](https://img.shields.io/badge/interface-CLI%20%2F%20API-475569?style=flat-square)
 
-**English** · [简体中文](README_zh.md) · [Evaluation](docs/evaluation-0.3.4.md) · [Limitations](docs/limitations.md)
+**English** · [简体中文](README_zh.md) · [Docs](docs/README.md) · [Evaluation](docs/evaluation.md) · [Limitations](docs/limitations.md)
 
 ---
 
 | Mode | Layout |
 | --- | --- |
-| **Flat** | Collect implementation files at one level; resolve duplicate names with numeric suffixes |
+| **Flat** (Python) | Collect implementation files at one level; resolve duplicate names with numeric suffixes |
 | **Random** | Generate grouped directory trees, controlled by seed, complexity, and depth |
 
-Packages within one source root share an allocation pool; independent roots stay separate. Flit follows single-package delivery boundaries. Tests, docs, resources, and configuration stay in place by default. Output is self-contained: public imports usually need no changes, physical imports reuse canonical module identities, and namespace paths remain extensible.
+For Python, packages within one source root share an allocation pool; independent roots stay separate. Flit follows single-package delivery boundaries. Tests, docs, resources, and configuration stay in place by default. Output is self-contained: public imports usually need no changes, physical imports reuse canonical module identities, and namespace paths remain extensible.
 
 ## ⚡ Quick start
 
@@ -52,44 +52,63 @@ python -m pip install -e .
 python -m pytest tests/
 ```
 
-## Random layout example
+## Java (random only)
 
-For a small `sample` package with eight modules, `--mode random --seed 42` produces the following with default complexity/depth (0.3.4, layout version 5):
-
-```text
-# Before                       # After: shuffled/
-sample/                        sample/
-├── __init__.py                 ├── __init__.py
-├── api.py                      ├── _internal_runtime.py
-├── cache.py                    ├── _internal_routes.py
-├── client.py                   └── _internal_code/
-├── config.py                       ├── __init__.py
-├── errors.py                       ├── _internal_aliases.py
-├── models.py                       ├── api.py
-├── parser.py                       ├── client.py
-└── utils.py                        ├── errors.py
-                                   ├── parser.py
-                                   └── module_1/
-                                       ├── __init__.py
-                                       ├── cache.py
-                                       ├── config.py
-                                       ├── models.py
-                                       └── utils.py
+```bash
+reposhuffle shuffle ./java-demo --language java --mode random --seed 42 --dry-run
+reposhuffle shuffle ./java-demo --language java --mode random --seed 42
 ```
 
-Public imports such as `from sample.cache import VALUE` stay unchanged. Tests, resources, and configuration remain in place; runtime/routes/aliases files must be kept.
+Initial Java support targets recursive Maven/Gradle production source collection, preserving filenames and source bytes, including package declarations. Tests, resources and descriptors stay in place; no runtime loader or original-path source copies are generated. Planning requires no JDK and does **not** compile Java. Explicit source roots must match actual build inputs; known source-boundary and acceptance gaps remain open. See the [Java guide](docs/java.md), [adapter architecture](docs/architecture.md) and [review findings](docs/review.md) (Chinese).
+
+Only one language is transformed at a time. Auto detection prioritizes root build metadata; ambiguous projects require `--language`. Other languages stay in place.
+
+## Random layout examples
+
+Both use random mode, seed=42, default complexity `0.7`, maximum depth `3` and layout version 5:
+- **Python**: eight modules, generated with 0.3.4; this is not a new 0.4.0 validation record.
+- **Java**: eight production files, generated with 0.4.0; the source root is auto-detected as `src/main/java`.
+
+```text
+# Python: original    # Python: random                # Java: original            # Java: random
+sample/               sample/                         src/main/java/              src/main/java/
+├── __init__.py       ├── __init__.py                 └── demo/                   └── _internal_code/
+├── api.py            ├── _internal_runtime.py            ├── Main.java               ├── Cache.java
+├── cache.py          ├── _internal_routes.py             ├── api/                    ├── Config.java
+├── client.py         └── _internal_code/                 │   └── Client.java         ├── Main.java
+├── config.py             ├── __init__.py                 ├── core/                   ├── Strings.java
+├── errors.py             ├── _internal_aliases.py        │   ├── Cache.java          └── module_1/
+├── models.py             ├── api.py                      │   └── Engine.java             ├── Client.java
+├── parser.py             ├── client.py                   ├── model/                      ├── Engine.java
+└── utils.py              ├── errors.py                   │   ├── Config.java             ├── Parser.java
+                          ├── parser.py                   │   └── User.java               └── User.java
+                          └── module_1/                   └── util/
+                              ├── __init__.py                 ├── Parser.java
+                              ├── cache.py                    └── Strings.java
+                              ├── config.py
+                              ├── models.py
+                              └── utils.py
+```
+
+**Python**: public imports such as `from sample.cache import VALUE` stay unchanged. Tests, resources, and configuration remain in place; runtime/routes/aliases files must be kept.
+
+**Java**: only physical source locations change, not packages. For example, `Cache.java` moves to `_internal_code/Cache.java` but still declares `package demo.core;`; callers still use `import demo.core.Cache;`. Sources remain under the original compiler root, `src/main/java`. The POM, `src/test/java` and `src/main/resources` stay in place; no Python initializers or routing files are generated.
+
+Both versions were compiled with javac, packaged into JARs and executed to check imports, reflective class identity, resources and matching class inventories. This does not establish compatibility with every Maven/Gradle plugin or imply that real-repository CI has passed.
 
 ## 🎛️ CLI options
 
 | Option | Description |
 | --- | --- |
+| `--language auto\|python\|java` | Select one language; default `auto`; Java supports random only |
+| `--source-dir RELATIVE_PATH` | Tell the tool where production sources live, relative to the selected project; repeatable, usually optional; does not modify the build |
 | `--mode flat\|random` | Defaults to `random` for `shuffle`; add to `inspect` for a complete plan |
 | `--seed INTEGER` | Random seed; generated and recorded if omitted |
 | `--max-depth 1..5` | Maximum random-directory depth, default `3`; does not force multiple levels |
 | `--complexity 0..1` | Random mode only, default `0.7`; higher values favor smaller groups, richer branching, and more levels |
-| `--subproject RELATIVE_PATH` | Select one project inside a workspace; selection rules are relative to it |
-| `--include PATH_OR_PATTERN` | Limit implementation selection; repeatable; other files are still copied in place |
-| `--exclude PATH_OR_PATTERN` | Keep matching files or directories in place; repeatable |
+| `--subproject RELATIVE_PATH` | Select an independent project inside the input directory; only that project is snapshotted; omit to use the input project |
+| `--include PATH_OR_PATTERN` | Select implementation files to move, relative to the selected project; repeatable; other files are copied in place |
+| `--exclude PATH_OR_PATTERN` | Keep matching files/directories in place, relative to the selected project; repeatable |
 | `-o, --output PATH` | Paired output container; parent must exist; `shuffle` only |
 | `--dry-run` | Analyze without creating output; `shuffle` only |
 | `--version` / `--help` | Show version / help |
@@ -104,6 +123,32 @@ reposhuffle shuffle ./workspace --subproject services/api --seed 42
 # Select implementation areas with repeatable include / exclude options
 reposhuffle shuffle ./demo --include 'backend/**' --include 'lib/**' --exclude 'backend/vendor/**'
 ```
+
+### Choosing `--subproject` versus `--source-dir`
+
+**One selects the project; the other describes its source location. Usually neither is needed.** `--subproject` already existed; `--source-dir` is the new source-root option.
+
+```text
+workspace/                         # Input directory
+└── services/api/                  # Independently processable/buildable project
+    ├── pom.xml
+    └── src/
+        ├── main/java/             # Production source root
+        └── test/java/             # Tests stay in place
+```
+
+```bash
+reposhuffle shuffle ./workspace --subproject services/api --language java --source-dir src/main/java --dry-run
+```
+
+In this command:
+
+- `--subproject services/api` is relative to the input `workspace`, selecting `workspace/services/api`. Only api is snapshotted, not the other workspace projects. Do not isolate a module that still requires an external parent POM or sibling modules.
+- `--source-dir src/main/java` is relative to the selected api project, resolving to `workspace/services/api/src/main/java`. It does not mean copying only that directory: the POM, tests and resources are still copied with api.
+- Repeat `--source-dir` for multiple actual production roots. Explicit roots replace the default discovery scope; they **do not add or change Maven/Gradle compiler inputs**.
+- To limit which files move, use `--include` / `--exclude`, not a broader or narrower source root. These patterns are also relative to the selected project, for example `--include 'src/main/java/demo/**'`.
+
+The standard `src/main/java` above is auto-detected, so normally omit `--source-dir src/main/java`. Passing `./workspace/services/api` directly also removes the need for `--subproject`. Java explicit-root handling has [known boundary issues](docs/review.md); do not broaden an actual source root to its parent, such as `src`.
 
 Also available as `python -m reposhuffle`. Results are JSON; redirect stdout to save a report. Exit code `0` means the current operation passed; `2` indicates an input, conversion, or file error.
 
@@ -150,9 +195,9 @@ The API also accepts `subproject="services/api"`. `plan.compatibility` summarize
 
 ## 🛡️ Validation boundaries
 
-Conversion runs static compilation, target checks, and inventory checks. **It does not prove functional equivalence, install dependencies, or run target tests.** File and traceback paths change; source scanning, custom loaders, special builds, and type checking may need adaptation. Symbolic links are not automatically followed. This is not source encryption.
+Conversion runs Python static compilation or Java source-byte/boundary checks, plus shared target and inventory checks. **It does not prove functional equivalence, install dependencies, or run target tests.** File and traceback paths change; source scanning, custom loaders, special builds, and type checking may need adaptation. Symbolic links are not automatically followed. This is not source encryption.
 
-The **0.3.3** [remote comparison](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/40542911307) passed all 20 jobs: 10 repositories × Windows/Linux, Python 3.13, flat/random, seeds 42/123. This run predates the **0.3.4** naming changes. See [evaluation details](docs/evaluation-0.3.4.md) and [known limitations](docs/limitations.md) (both in Chinese). Full repository validation runs in GitHub Actions.
+**0.4.0** has local tool/controlled-fixture validation, but its full real-repository CI comparison has not been run. Later review found unresolved issues; passing historical tests does not cover them. Current status, comparison limits and original historical results are maintained in [evaluation](docs/evaluation.md), with open findings in [review](docs/review.md) (Chinese).
 
 ## Development
 
@@ -167,4 +212,4 @@ python -m build --outdir .tmp/dist
 
 CI is configured for Windows / Linux × Python 3.10–3.13; passing status depends on actual runs.
 
-[Evaluation profiles](evaluation/python.json) record source commits, dependencies, and test scopes. The [evaluation harness](scripts/evaluate.py) supports additional repositories, multiple seeds, and isolated wheel installation. See `--help`; `--output` requires a new directory by default; `--append --projects ...` adds new repositories without replacing existing results. Real-repository checks run on pushes to `main`, every Monday at 00:00 Beijing time (UTC+8), or manually, with raw evidence uploaded as CI artifacts. The harness executes upstream builds and tests; use an isolated environment.
+[Python profiles](evaluation/python.json) and [Java profiles](evaluation/java.json) each contain ten pinned repositories. The shared [harness](scripts/evaluate.py) executes upstream code; use an isolated environment. Full repository comparisons belong in Actions, not local/Docker reruns. Configuration scopes, acceptance gaps, scheduling and versioned evidence are documented once in [evaluation](docs/evaluation.md) (Chinese).
