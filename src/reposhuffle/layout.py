@@ -117,6 +117,7 @@ class NumberedLayout:
 def _layout_stats(plan: Plan) -> dict[str, object]:
     moved = [f for f in plan.inspection.files if f.role in {"source", "script"}]
     files_by_depth: collections.Counter[int] = collections.Counter()
+    physical_files_by_depth: collections.Counter[int] = collections.Counter()
     directories: dict[int, set[str]] = collections.defaultdict(set)
     loads: collections.Counter[str] = collections.Counter()
     zones: set[str] = set()
@@ -125,7 +126,9 @@ def _layout_stats(plan: Plan) -> dict[str, object]:
         target = plan.mapping.get(record.path)
         if target is None:
             continue
-        parent = PurePosixPath(target).parent
+        parent = PurePosixPath(
+            plan.allocation_directories.get(record.path, str(PurePosixPath(target).parent))
+        )
         zone = PurePosixPath(plan.storage_roots[record.path])
         relative = parent.relative_to(zone).parts
         depth = len(relative)
@@ -136,7 +139,9 @@ def _layout_stats(plan: Plan) -> dict[str, object]:
             numbered.add(str(directory))
         zones.add(str(zone))
         files_by_depth[depth] += 1
-        loads[str(parent)] += 1
+        physical_parent = PurePosixPath(target).parent
+        physical_files_by_depth[len(physical_parent.relative_to(zone).parts)] += 1
+        loads[str(physical_parent)] += 1
     branches: collections.Counter[str] = collections.Counter()
     for directory in numbered:
         parent = str(PurePosixPath(directory).parent)
@@ -157,6 +162,9 @@ def _layout_stats(plan: Plan) -> dict[str, object]:
         "zones": len(zones),
         "numbered_directories": len(numbered),
         "files_by_depth": {str(depth): files_by_depth[depth] for depth in sorted(files_by_depth)},
+        "physical_files_by_depth": {
+            str(depth): physical_files_by_depth[depth] for depth in sorted(physical_files_by_depth)
+        },
         "directories_by_depth": {
             str(depth): len(paths) for depth, paths in sorted(directories.items())
         },

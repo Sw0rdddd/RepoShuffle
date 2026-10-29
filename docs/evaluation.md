@@ -19,8 +19,12 @@ CI 使用 Windows/Linux、seed=42/123。推送 main、每周一北京时间 00:0
 1. 校验仓库固定提交，拒绝已修改的 tracked 文件；生成 original/shuffled 配对快照。
 2. 原版与转换版使用相同配置、依赖、构建/测试命令和上游断言。没有失败节点豁免，也不改上游断言或取消检查。
 3. 比较 JUnit 节点、重复次数和结果，拒绝新增、缺失、变化及新增失败。Java 报告带模块/任务目录身份；非空报告不等于证明收集了所有预期测试。
-4. Python 可执行 wheel 构建、隔离安装及导入检查。Java 要求非空 JAR 类名清单且两版一致，并要求每个迁移 Java 文件在两版都出现在生产编译输入中。Maven 读取 compile/inputFiles.lst；Gradle 用临时 init script 记录成功 main JavaCompile 的 source，禁用构建缓存并强制重跑，不把测试编译算作生产迁移。缺少编译证据即失败，不按 Java 文件名猜 class 名；不比较 class 字节，也不声称由此证明所有运行行为等价。
+4. Python 可执行 wheel 构建、隔离安装及导入检查。Java 要求非空 JAR 类名清单且两版一致，并要求每个迁移 Java 文件在两版都出现在生产编译输入中。Maven 读取 compile/inputFiles.lst，并用生产 compile 阶段的 javac 文件对象诊断补足非增量编译证据，不从 testCompile/Javadoc 取证；Gradle 用临时 init script 记录成功 main JavaCompile 的 source，禁用守护进程、构建/配置缓存并强制重跑，不把测试编译算作生产迁移。缺少编译证据即失败，不按 Java 文件名猜 class 名；不比较 class 字节，也不声称由此证明所有运行行为等价。
 5. 报告保留工具版本、实际 profile、日志和对照结果。`--append` 不覆盖已有项目，并检查已有结果的版本、提交和已记录的 profile。
+
+JUnit 与 JSON 报告流式处理，保留全部节点、重复次数和结果，不为大规模测试缩减范围。构建超时会清理进程树；原版构建/测试失败则立即记录失败，不继续生成可被误解为有效对照的转换版结果。
+
+profile 可声明真实 VCS 元数据环境、JVM 资源/并发选项和 CI 超时预算；两版一致使用，不以跳过测试替代资源配置。手动 Actions 可用 `projects=java/jsoup,java/junit5` 定点复验同一公开配置；main 推送和定时仍默认完整矩阵。Caffeine 保留完整 `:caffeine:test`，收集全部派生测试任务的 XML，未换成小范围套件。
 
 测试和构建会执行上游代码，应使用隔离环境。使用前阅读脚本 `--help`；输出必须是新目录，追加仅限 `--append --projects ...`。
 

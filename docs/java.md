@@ -10,9 +10,11 @@ reposhuffle shuffle ./demo --language java --mode random --seed 42
 
 ## 迁移行为
 
-- 真正移动生产 `.java` 文件，保持文件名和原始字节，不改 package/import/类名，不保留原路径源码副本，不生成加载器。同名文件分配到不同目录。
+- 真正移动生产 `.java` 文件，保持文件名和原始字节，不改 package/import/类名，不保留原路径源码副本，不生成加载器。随机分配后保留原源码根相对路径作为后缀，以保持包路径检查所需的目录结尾。
 - 首期按源码根和已识别的构建单元分组；识别标准 `src/main/java`，支持 Gradle 子项目继承根构建配置。发现并非完整有效 POM 或 Gradle 模型解析。
-- 测试、资源、其他语言和构建脚本默认保留原位；`module-info.java`、`package-info.java` 保留为描述符锚点。
+- 测试、资源、其他语言和原目录保留；`module-info.java`、`package-info.java` 及可静态识别的字面源码文件引用保留为锚点，不因此冻结整个源码目录。存储区放在可移动文件的公共父目录内，尽量不改变外层目录形状。
+- 已识别 Maven Javadoc 插件使用实际文件列表；源码插件过滤随迁移路径适配并核对原选择结果。不禁用 doclint、Werror、测试或其他上游检查，变更记入清单。
+- `--max-depth` 限制随机编号树，Java 包路径后缀另计。清单的 `allocation_directories` 记录编号分配位置，`physical_files_by_depth` 记录相对存储根的实际深度。
 - 规划无需 JDK，不执行 Maven/Gradle，不检查 Java 语法。`plan.ok` 只是当前检查结果，不证明编译、运行或发布成功。
 
 ## 显式生产源码根
@@ -36,4 +38,4 @@ API 为 `build_plan(..., language="java", source_dirs=[...])`，显式参数优�
 
 `--language auto|python|java` 默认 auto，优先根构建标识，无标识时检查非辅助目录源码；识别有歧义时要求显式选择。复杂工作区建议指定语言和 `--subproject`。一次只转换一种语言，不联合编排构建。
 
-输出后仍按原项目要求独立构建和测试。构建、资源和路径兼容边界集中在[局限性](limitations.md)，扩展接口见[架构](architecture.md)，真实仓库配置与验证状态见[测评方法](evaluation.md)。
+发布本身不包含 Git 历史；需要 VCS 的测评可用 profile 字段 `"vcs": true` 补充真实固定提交的共享对象元数据，并保留真实 dirty 状态，不伪造干净仓库。输出后仍按原项目要求独立构建和测试。构建、资源和路径兼容边界集中在[局限性](limitations.md)，扩展接口见[架构](architecture.md)，真实仓库配置与验证状态见[测评方法](evaluation.md)。

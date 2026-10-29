@@ -98,6 +98,7 @@ class Plan:
     layout: dict[str, Any] = field(default_factory=dict)
     compatibility: dict[str, Any] = field(default_factory=dict)
     storage_roots: dict[str, str] = field(default_factory=dict)
+    allocation_directories: dict[str, str] = field(default_factory=dict)
     static_checks: list[str] = field(default_factory=list)
     _validated: str = field(default="", repr=False)
 
@@ -132,6 +133,7 @@ class Plan:
             "source_units": [asdict(unit) for unit in self.inspection.source_units],
             "inventory_excludes": self.inspection.inventory_excludes,
             "storage_roots": self.storage_roots,
+            "allocation_directories": self.allocation_directories,
             "static_checks": self.static_checks,
             "mode": self.mode,
             "seed": self.seed,

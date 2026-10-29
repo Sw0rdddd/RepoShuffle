@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -28,36 +29,62 @@ def junit_result(
     exit_code: int | None,
     snapshot: Path | None = None,
     module_aliases: dict[str, str] | None = None,
+    *,
+    allow_empty: bool = False,
 ) -> dict:
     if not path.is_file() or exit_code not in (0, 1):
         return {"complete": False, "counts": {}, "cases": {}}
-    try:
-        document = ET.parse(path)
-    except ET.ParseError:
-        return {"complete": False, "counts": {}, "cases": {}}
     cases: dict[str, list[str]] = {}
     counts: collections.Counter = collections.Counter()
-    for case in document.iter("testcase"):
-        classname, name = case.get("classname", ""), case.get("name", "")
-        for physical, logical in sorted(
-            (module_aliases or {}).items(), key=lambda pair: -len(pair[0])
-        ):
-            if classname == physical or classname.startswith(physical + "."):
-                classname = logical + classname[len(physical) :]
-                break
-        key = classname + "::" + name
-        if snapshot is not None:
-            for root in (str(snapshot), snapshot.as_posix()):
-                key = key.replace(root.replace("\\", "\\\\"), "<snapshot>").replace(
-                    root, "<snapshot>"
-                )
-        outcome = next(
-            (name for name in ("failure", "error", "skipped") if case.find(name) is not None),
-            "passed",
-        )
-        counts[outcome] += 1
-        cases.setdefault(key, []).append(outcome)
-    return {"complete": bool(cases), "counts": dict(counts), "cases": cases}
+    aliases = sorted((module_aliases or {}).items(), key=lambda pair: -len(pair[0]))
+    suites = 0
+    all_empty = True
+    has_outcome = False
+    try:
+        with path.open("rb") as stream:
+            for _, node in ET.iterparse(stream, events=("end",)):
+                if node.tag == "testcase":
+                    classname, name = node.get("classname", ""), node.get("name", "")
+                    for physical, logical in aliases:
+                        if classname == physical or classname.startswith(physical + "."):
+                            classname = logical + classname[len(physical) :]
+                            break
+                    key = classname + "::" + name
+                    if snapshot is not None:
+                        for root in (str(snapshot), snapshot.as_posix()):
+                            key = key.replace(root.replace("\\", "\\\\"), "<snapshot>").replace(
+                                root, "<snapshot>"
+                            )
+                    outcome = next(
+                        (
+                            name
+                            for name in ("failure", "error", "skipped")
+                            if node.find(name) is not None
+                        ),
+                        "passed",
+                    )
+                    counts[outcome] += 1
+                    cases.setdefault(key, []).append(outcome)
+                    node.clear()
+                elif node.tag == "testsuite":
+                    suites += 1
+                    all_empty = (
+                        all_empty
+                        and node.get("tests") == "0"
+                        and all(
+                            node.get(key, "0") == "0" for key in ("errors", "failures", "skipped")
+                        )
+                    )
+                    node.clear()
+                elif node.tag in {"failure", "error", "skipped"}:
+                    has_outcome = True
+                    node.clear()
+                elif node.tag in {"system-out", "system-err", "properties"}:
+                    node.clear()
+    except ET.ParseError:
+        return {"complete": False, "counts": {}, "cases": {}}
+    empty_container = allow_empty and suites > 0 and all_empty and not has_outcome
+    return {"complete": bool(cases) or empty_container, "counts": dict(counts), "cases": cases}
 
 
 def compare(original: dict, shuffled: dict) -> dict:
@@ -81,20 +108,46 @@ def compare(original: dict, shuffled: dict) -> dict:
 def run(argv: list[str], cwd: Path, log: Path, env: dict, timeout: int) -> dict:
     start = time.monotonic()
     with log.open("w", encoding="utf-8") as stream:
-        try:
-            process = subprocess.run(
-                argv,
-                cwd=cwd,
-                env=env,
-                stdout=stream,
-                stderr=subprocess.STDOUT,
-                timeout=timeout,
-                check=False,
-            )
-            result = {"exit": process.returncode, "timeout": False}
-        except subprocess.TimeoutExpired:
-            result = {"exit": None, "timeout": True}
+        isolation = (
+            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            if os.name == "nt"
+            else {"start_new_session": True}
+        )
+        with subprocess.Popen(
+            argv, cwd=cwd, env=env, stdout=stream, stderr=subprocess.STDOUT, **isolation
+        ) as process:
+            try:
+                process.wait(timeout=timeout)
+                result = {"exit": process.returncode, "timeout": False}
+            except subprocess.TimeoutExpired:
+                if os.name == "nt":
+                    subprocess.run(
+                        [
+                            str(Path(os.environ["SystemRoot"]) / "System32/taskkill.exe"),
+                            "/PID",
+                            str(process.pid),
+                            "/T",
+                            "/F",
+                        ],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=30,
+                        check=False,
+                    )
+                else:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                process.wait(timeout=30)
+                result = {"exit": None, "timeout": True}
     return {**result, "seconds": round(time.monotonic() - start, 2)}
+
+
+def write_json(path: Path, value: dict) -> None:
+    with path.open("w", encoding="utf-8") as stream:
+        json.dump(value, stream, indent=2)
+        stream.write("\n")
 
 
 def python_in(environment: Path) -> Path:
@@ -108,6 +161,59 @@ def initialize_submodules(source: Path, timeout: int) -> None:
             check=True,
             timeout=timeout,
         )
+
+
+def snapshot_vcs(
+    source: Path, snapshot: Path, revision: str, work: Path, label: str, timeout: int
+) -> dict:
+    """Attach real pinned Git metadata without checking out or duplicating source files."""
+    metadata = work / (label + "-vcs")
+    subprocess.run(
+        ["git", "clone", "--shared", "--no-checkout", str(source), str(metadata)],
+        check=True,
+        capture_output=True,
+        timeout=timeout,
+    )
+    subprocess.run(
+        ["git", "-C", str(metadata), "reset", "--mixed", revision],
+        check=True,
+        capture_output=True,
+        timeout=timeout,
+    )
+    origin = subprocess.run(
+        ["git", "-C", str(source), "config", "--get", "remote.origin.url"],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    if origin.returncode == 0:
+        subprocess.run(
+            ["git", "-C", str(metadata), "remote", "set-url", "origin", origin.stdout.strip()],
+            check=True,
+            capture_output=True,
+            timeout=timeout,
+        )
+    elif origin.returncode == 1:
+        subprocess.run(
+            ["git", "-C", str(metadata), "remote", "remove", "origin"],
+            check=True,
+            capture_output=True,
+            timeout=timeout,
+        )
+    else:
+        origin.check_returncode()
+    shutil.move(str(metadata / ".git"), str(snapshot / ".git"))
+    metadata.rmdir()
+    head = subprocess.check_output(
+        ["git", "-C", str(snapshot), "rev-parse", "HEAD"], text=True
+    ).strip()
+    if head != revision:
+        raise ValueError("Snapshot Git revision differs from pinned input")
+    dirty = subprocess.check_output(
+        ["git", "-C", str(snapshot), "status", "--porcelain"], text=True
+    )
+    return {"exit": 0, "revision": head, "dirty": bool(dirty)}
 
 
 class PythonRunner:
@@ -283,13 +389,13 @@ def junit_results(paths: list[Path], exit_code: int | None, snapshot: Path) -> d
     counts = collections.Counter()
     complete = bool(paths)
     for path in sorted(paths):
-        result = junit_result(path, exit_code, snapshot)
+        result = junit_result(path, exit_code, snapshot, allow_empty=True)
         complete = complete and result["complete"]
         scope = path.parent.relative_to(snapshot).as_posix()
         for node, outcomes in result["cases"].items():
             cases.setdefault(scope + "::" + node, []).extend(outcomes)
         counts.update(result["counts"])
-    return {"complete": complete, "counts": dict(counts), "cases": cases}
+    return {"complete": complete and bool(cases), "counts": dict(counts), "cases": cases}
 
 
 def jar_inventory(snapshot: Path, patterns: list[str]) -> dict:
@@ -337,7 +443,9 @@ def gradle_compiler_arguments(work: Path, snapshot_name: str) -> list[str]:
     traces = work / f"{snapshot_name}-compiler-inputs"
     traces.mkdir()
     return [
+        "--no-daemon",
         "--no-build-cache",
+        "--no-configuration-cache",
         "--rerun-tasks",
         "--init-script",
         str(script),
@@ -345,7 +453,9 @@ def gradle_compiler_arguments(work: Path, snapshot_name: str) -> list[str]:
     ]
 
 
-def compiler_inputs(snapshot: Path, system: str, traces: Path | None = None) -> dict:
+def compiler_inputs(
+    snapshot: Path, system: str, traces: Path | None = None, *, build_log: Path | None = None
+) -> dict:
     """Read compiler-selected paths, never infer binary names from Java filenames."""
     if system == "maven":
         reports = sorted(
@@ -367,7 +477,33 @@ def compiler_inputs(snapshot: Path, system: str, traces: Path | None = None) -> 
             path = Path(value).resolve()
             if path.is_relative_to(snapshot.resolve()) and path.suffix == ".java":
                 files.add(path.relative_to(snapshot.resolve()).as_posix())
-    return {"exit": 0 if files else 1, "files": sorted(files), "reports": len(reports)}
+    parsed_files = set()
+    if system == "maven" and build_log is not None:
+        text = build_log.read_text(encoding="utf-8", errors="replace")
+        text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+        # Parallel Maven output cannot reliably associate parser events with a mojo.
+        if "MultiThreadedBuilder" not in text:
+            compiling = False
+            for line in text.splitlines():
+                if re.search(r"--- \S+:\S+ \([^)]*\) @", line):
+                    compiling = bool(
+                        re.search(r"--- (?:maven-)?compiler(?:-plugin)?:[^: ]+:compile ", line)
+                    )
+                match = re.search(
+                    r"(?:SimpleFileObject|RegularFileObject)\[(.+\.java)\]",
+                    line,
+                )
+                if compiling and match:
+                    path = Path(match[1]).resolve()
+                    if path.is_relative_to(snapshot.resolve()):
+                        parsed_files.add(path.relative_to(snapshot.resolve()).as_posix())
+        files.update(parsed_files)
+    return {
+        "exit": 0 if files else 1,
+        "files": sorted(files),
+        "reports": len(reports),
+        "parsed_sources": len(parsed_files),
+    }
 
 
 def compiled_relocation(mapping: dict[str, str], original: dict, shuffled: dict) -> dict:
@@ -431,7 +567,7 @@ class JavaRunner:
         compiler_args = (
             gradle_compiler_arguments(work, snapshot_name)
             if profile["build_system"] == "gradle"
-            else []
+            else ["-Dmaven.compiler.verbose=true"]
         )
         executed = run(
             [*command, *compiler_args, *profile["tasks"]],
@@ -454,7 +590,10 @@ class JavaRunner:
             "build_tool": tool,
             "artifact_inventory": {"exit": 0 if inventory else 1, "jars": inventory},
             "compiler_inputs": compiler_inputs(
-                snapshot, profile["build_system"], work / f"{snapshot_name}-compiler-inputs"
+                snapshot,
+                profile["build_system"],
+                work / f"{snapshot_name}-compiler-inputs",
+                build_log=work / f"{snapshot_name}-tests.log",
             ),
         }
 
@@ -503,7 +642,7 @@ def evaluate(name: str, profile: dict, args) -> dict:
         "variants": {},
     }
     if report["setup"]["exit"] != 0:
-        (work / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        write_json(work / "report.json", report)
         return report
     baseline = None
     modes = args.modes or (["random"] if language == "java" else ["flat", "random"])
@@ -538,6 +677,11 @@ def evaluate(name: str, profile: dict, args) -> dict:
                 snapshots.append((label, output / "shuffled"))
                 for snapshot_name, snapshot in snapshots:
                     print(f"{name}: testing {snapshot_name}", flush=True)
+                    vcs = (
+                        snapshot_vcs(source, snapshot, revision, work, snapshot_name, args.timeout)
+                        if profile.get("vcs")
+                        else None
+                    )
                     result = runner.execute(
                         snapshot,
                         snapshot_name,
@@ -546,9 +690,15 @@ def evaluate(name: str, profile: dict, args) -> dict:
                         args,
                         aliases if snapshot_name != "original" else {},
                     )
+                    if vcs is not None:
+                        result["vcs"] = vcs
                     if snapshot_name == "original":
                         baseline = result
                         report["original"] = result
+                        if result.get("exit") != 0:
+                            variant["baseline_failed"] = True
+                            write_json(work / "report.json", report)
+                            return report
                     else:
                         variant["tests"] = result
                         variant["comparison"] = compare(baseline, result)
@@ -565,7 +715,7 @@ def evaluate(name: str, profile: dict, args) -> dict:
                                 baseline["counts"] == result["counts"]
                                 and baseline["exit"] == result["exit"]
                             )
-            (work / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+            write_json(work / "report.json", report)
     return report
 
 
@@ -575,7 +725,7 @@ def acceptable(report: dict) -> bool:
     runner = _RUNNERS.get(report.get("language", "python"))
     if runner is None or not report.get("variants"):
         return False
-    required = runner.required_evidence
+    required = runner.required_evidence + (("vcs",) if report.get("profile", {}).get("vcs") else ())
     baseline = report.get("original", {})
     if baseline.get("exit") != 0 or any(baseline.get(key, {}).get("exit") != 0 for key in required):
         return False
@@ -666,6 +816,8 @@ def main(argv=None) -> int:
         if name in {".", ".."} or re.fullmatch(r"[\w.-]+", name) is None:
             parser.error("Unsafe project name")
         profile = profiles[name]
+        if not isinstance(profile.get("vcs", False), bool):
+            parser.error(f"vcs must be a boolean: {name}")
         if profile.get("language") == "java":
             required = {"jdk", "build_system", "build_version", "tasks", "reports", "artifacts"}
             if not required <= profile.keys() or profile["build_system"] not in {"maven", "gradle"}:
@@ -699,9 +851,7 @@ def main(argv=None) -> int:
                 results[name] = future.result()
             except (OSError, ValueError, subprocess.SubprocessError, ShuffleError) as exc:
                 results[name] = {"error": type(exc).__name__, "message": str(exc)}
-            (args.output / "summary.json").write_text(
-                json.dumps(results, indent=2) + "\n", encoding="utf-8"
-            )
+            write_json(args.output / "summary.json", results)
             print(
                 f"{name}: {'matched' if acceptable(results[name]) else 'review required'}",
                 flush=True,

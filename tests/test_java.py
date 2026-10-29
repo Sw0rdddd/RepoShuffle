@@ -66,7 +66,11 @@ def test_java_relocates_bytes_with_shared_layout(project, build):
     assert len(moving) == 3
     zone = "src/main/java/_internal_code"
     expected = NumberedLayout(42, 3, 0.7).targets(
-        zone, {record.path: PurePosixPath(record.path).name for record in moving}
+        zone,
+        {
+            record.path: PurePosixPath(record.path).relative_to(record.owner).as_posix()
+            for record in moving
+        },
     )
     assert {record.path: plan.mapping[record.path] for record in moving} == expected
     for record in plan.inspection.files:
@@ -90,6 +94,25 @@ def test_java_relocates_bytes_with_shared_layout(project, build):
         assert (output / "original" / record.path).read_bytes() == (
             source / record.path
         ).read_bytes()
+
+
+def test_java_namespace_suffix_is_separate_from_numbered_tree_depth(project):
+    files = {"pom.xml": "<project/>"}
+    files.update(
+        {
+            f"src/main/java/a/b/c/C{index}.java": f"package a.b.c; public class C{index} {{}}"
+            for index in range(12)
+        }
+    )
+    plan = build_plan(project(files), seed=42, max_depth=1, complexity=1)
+    assert plan.ok, plan.to_dict()
+    assert max(map(int, plan.layout["files_by_depth"])) <= 1
+    assert max(map(int, plan.layout["physical_files_by_depth"])) > 1
+    assert len(plan.allocation_directories) == 12
+    for path, allocation in plan.allocation_directories.items():
+        assert str(PurePosixPath(plan.mapping[path]).relative_to(allocation)) == path.removeprefix(
+            "src/main/java/"
+        )
 
 
 def test_java_byte_preserving_moves_remain_disk_backed(project, monkeypatch):
@@ -259,8 +282,8 @@ def test_maven_literal_custom_and_additional_roots_keep_actual_boundaries(projec
     )
     plan = build_plan(source, source_dirs=["production", "additional"], seed=42)
     assert plan.ok, plan.to_dict()
-    assert plan.mapping["production/demo/Main.java"].startswith("production/_internal_code/")
-    assert plan.mapping["additional/demo/Extra.java"].startswith("additional/_internal_code/")
+    assert plan.mapping["production/demo/Main.java"].startswith("production/demo/_internal_code/")
+    assert plan.mapping["additional/demo/Extra.java"].startswith("additional/demo/_internal_code/")
     assert not build_plan(source, source_dirs=["production/demo"]).ok
 
 
@@ -325,6 +348,27 @@ def test_reincluded_build_keeps_ignored_parent_pom_out_of_filter_analysis(projec
     )
 
 
+def test_explicit_roots_do_not_analyze_unselected_embedded_build_fixtures(project):
+    files = sources("build.gradle.kts")
+    files.update(
+        {
+            "tooling-support/projects/sample/pom.xml": "invalid XML fixture",
+            "tooling-support/projects/sample/build.gradle": "not executable DSL",
+            "tooling-support/projects/sample/src/main/java/Data.java": "not Java fixture",
+            "tooling-support/projects/sample/target/data.bin": b"fixture, not a build cache",
+        }
+    )
+    source = project(files)
+    plan = build_plan(source, source_dirs=["src/main/java"], seed=42)
+    assert plan.ok, plan.to_dict()
+    assert [unit.root for unit in plan.inspection.source_units] == ["src/main/java"]
+    output = apply_plan(plan)
+    for path in files:
+        if path.startswith("tooling-support/"):
+            assert plan.mapping[path] == path
+            assert (output / "shuffled" / path).read_bytes() == (source / path).read_bytes()
+
+
 def test_java_dry_run_does_not_execute_target_or_compile(project, monkeypatch, capsys):
     source = project(sources("build.gradle"))
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: pytest.fail("executed target"))
@@ -379,6 +423,143 @@ def test_java_compile_and_run_preserves_package_access_identity_and_resources(
         assert result.stdout.strip() == "ok"
 
 
+def test_java_preserves_literal_source_anchors_and_existing_outer_directory_shape(
+    project, tmp_path
+):
+    source = project(
+        {
+            "pom.xml": POM,
+            "src/main/java/org/demo/Alpha.java": "package org.demo; public class Alpha {}",
+            "src/main/java/org/demo/Beta.java": "package org.demo; public class Beta {}",
+            "src/main/java/org/demo/impl/Extra.java": "package org.demo.impl; public class Extra {}",
+            "src/test/java/org/demo/PathsTest.java": """package org.demo;
+public class PathsTest {
+ static final java.io.File root = new java.io.File("src/main/java");
+ static final java.io.File org = new java.io.File(root, "org");
+ static final java.io.File pkg = new java.io.File(org, "demo");
+ static final java.io.File anchor = new java.io.File(pkg, "Alpha.java");
+ public static void main(String[] args) throws Exception {
+  if (!anchor.isFile()) throw new AssertionError("source anchor");
+  try (var files = java.nio.file.Files.walk(root.toPath(), 1)) {
+   if (files.filter(java.nio.file.Files::isDirectory).count() != 2) throw new AssertionError("outer directory shape");
+  }
+  if (!Class.forName("org.demo.Beta").getName().equals("org.demo.Beta")) throw new AssertionError("identity");
+ }
+}
+""",
+        }
+    )
+    plan = build_plan(source, seed=42)
+    assert plan.ok, plan.to_dict()
+    assert plan.mapping["src/main/java/org/demo/Alpha.java"] == "src/main/java/org/demo/Alpha.java"
+    assert plan.mapping["src/main/java/org/demo/Beta.java"] != "src/main/java/org/demo/Beta.java"
+    assert (
+        plan.mapping["src/main/java/org/demo/impl/Extra.java"]
+        != "src/main/java/org/demo/impl/Extra.java"
+    )
+    output = apply_plan(plan)
+    assert sorted(path.name for path in (output / "shuffled/src/main/java").iterdir()) == ["org"]
+    for original, target in plan.mapping.items():
+        if original.endswith(".java") and original != target:
+            assert target.endswith(original.removeprefix("src/main/java/"))
+            assert not (output / "shuffled" / original).exists()
+    if not shutil.which("javac") or not shutil.which("java"):
+        pytest.skip("JDK not installed; planning assertions were still exercised")
+    for label in ("original", "shuffled"):
+        snapshot = output / label
+        classes = tmp_path / (label + "-classes")
+        classes.mkdir()
+        subprocess.run(
+            [
+                "javac",
+                "--release",
+                "17",
+                "-d",
+                str(classes),
+                *map(str, snapshot.glob("src/**/*.java")),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        subprocess.run(
+            ["java", "-cp", str(classes), "org.demo.PathsTest"],
+            cwd=snapshot,
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+
+
+def test_maven_javadoc_uses_actual_files_and_source_jar_filters_remain_effective(project, tmp_path):
+    tool = os.environ.get("REPOSHUFFLE_MAVEN") or shutil.which("mvn")
+    if not tool:
+        pytest.skip("maven not installed; set REPOSHUFFLE_MAVEN")
+    import zipfile
+
+    files = sources()
+    plugins = """<plugin><artifactId>maven-javadoc-plugin</artifactId><version>3.11.1</version>
+<executions><execution><goals><goal>jar</goal></goals></execution></executions></plugin>
+<plugin><artifactId>maven-source-plugin</artifactId><version>3.3.1</version>
+<configuration><excludes><exclude>other/**</exclude></excludes></configuration>
+<executions><execution><goals><goal>jar-no-fork</goal></goals></execution></executions></plugin>"""
+    files["pom.xml"] = POM.replace("</plugins>", plugins + "</plugins>")
+    plan = build_plan(project(files), seed=42)
+    assert plan.ok, plan.to_dict()
+    assert b"sourceFileIncludes" in plan.contents["pom.xml"]
+    assert b"**/other/**" in plan.contents["pom.xml"]
+    output = apply_plan(plan)
+    for label in ("original", "shuffled"):
+        snapshot = output / label
+        process = subprocess.run(
+            [tool, "-B", "-ntp", "clean", "package"],
+            cwd=snapshot,
+            capture_output=True,
+            text=True,
+            timeout=240,
+            check=False,
+        )
+        assert process.returncode == 0, process.stdout + process.stderr
+        assert list(snapshot.glob("target/**/apidocs/demo/Main.html"))
+        with zipfile.ZipFile(next(snapshot.glob("target/*-sources.jar"))) as archive:
+            assert any(path.endswith("demo/Main.java") for path in archive.namelist())
+            assert not any(path.endswith("other/Main.java") for path in archive.namelist())
+
+
+def test_maven_nonincremental_compilation_has_production_input_evidence(project, tmp_path):
+    tool = os.environ.get("REPOSHUFFLE_MAVEN") or shutil.which("mvn")
+    if not tool:
+        pytest.skip("maven not installed; set REPOSHUFFLE_MAVEN")
+    from scripts.evaluate import compiled_relocation, compiler_inputs
+
+    files = sources()
+    files["pom.xml"] = POM.replace(
+        "<version>3.13.0</version>",
+        "<version>3.13.0</version><configuration><useIncrementalCompilation>false</useIncrementalCompilation></configuration>",
+    )
+    plan = build_plan(project(files), seed=42)
+    output = apply_plan(plan)
+    evidence = []
+    for label in ("original", "shuffled"):
+        snapshot = output / label
+        log = tmp_path / (label + ".log")
+        with log.open("w", encoding="utf-8") as stream:
+            process = subprocess.run(
+                [tool, "-B", "-ntp", "-Dmaven.compiler.verbose=true", "clean", "package"],
+                cwd=snapshot,
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+                timeout=240,
+                check=False,
+            )
+        assert process.returncode == 0, log.read_text(encoding="utf-8")
+        inputs = compiler_inputs(snapshot, "maven", build_log=log)
+        assert inputs["exit"] == 0 and inputs["parsed_sources"] > 0, inputs
+        assert not any("/src/test/" in "/" + path for path in inputs["files"])
+        evidence.append({"compiler_inputs": inputs})
+    assert compiled_relocation(plan.mapping, *evidence)["complete"]
+
+
 def test_gradle_test_compilation_cannot_prove_production_migration(project, tmp_path):
     tool = os.environ.get("REPOSHUFFLE_GRADLE") or shutil.which("gradle")
     if not tool:
@@ -412,7 +593,7 @@ def test_gradle_test_compilation_cannot_prove_production_migration(project, tmp_
     for label in ("original", "shuffled"):
         snapshot = output / label
         process = subprocess.run(
-            [tool, "--no-daemon", *gradle_compiler_arguments(tmp_path, label), "clean", "build"],
+            [tool, *gradle_compiler_arguments(tmp_path, label), "clean", "build"],
             cwd=snapshot,
             capture_output=True,
             text=True,
@@ -503,7 +684,6 @@ def test_standard_build_collects_relocated_sources(project, tmp_path, system, mu
             if system == "maven"
             else [
                 tool,
-                "--no-daemon",
                 *gradle_compiler_arguments(tmp_path, label),
                 "clean",
                 "build",

@@ -65,34 +65,38 @@ Only one language is transformed at a time. Auto detection prioritizes root buil
 
 ## Random layout examples
 
-Both use random mode, seed=42, default complexity `0.7`, maximum depth `3` and layout version 5:
+Both use random mode, seed=42, default complexity `0.7`, maximum depth `3` and layout version 5. Only source files are shown; preserved empty Java directories are omitted:
 - **Python**: eight modules, generated with 0.3.4; this is not a new 0.4.0 validation record.
-- **Java**: eight production files, generated with 0.4.0; the source root is auto-detected as `src/main/java`.
+- **Java**: eight production files, generated with 0.4.1 under `src/main/java`. Original package-path suffixes are preserved; depth controls the random numbered tree only.
 
 ```text
 # Python: original    # Python: random                # Java: original            # Java: random
 sample/               sample/                         src/main/java/              src/main/java/
-├── __init__.py       ├── __init__.py                 └── demo/                   └── _internal_code/
-├── api.py            ├── _internal_runtime.py            ├── Main.java               ├── Cache.java
-├── cache.py          ├── _internal_routes.py             ├── api/                    ├── Config.java
-├── client.py         └── _internal_code/                 │   └── Client.java         ├── Main.java
-├── config.py             ├── __init__.py                 ├── core/                   ├── Strings.java
-├── errors.py             ├── _internal_aliases.py        │   ├── Cache.java          └── module_1/
-├── models.py             ├── api.py                      │   └── Engine.java             ├── Client.java
-├── parser.py             ├── client.py                   ├── model/                      ├── Engine.java
-└── utils.py              ├── errors.py                   │   ├── Config.java             ├── Parser.java
-                          ├── parser.py                   │   └── User.java               └── User.java
-                          └── module_1/                   └── util/
-                              ├── __init__.py                 ├── Parser.java
-                              ├── cache.py                    └── Strings.java
-                              ├── config.py
-                              ├── models.py
-                              └── utils.py
+├── __init__.py       ├── __init__.py                 └── demo/                   └── demo/
+├── api.py            ├── _internal_runtime.py            ├── Main.java               └── _internal_code/
+├── cache.py          ├── _internal_routes.py             ├── api/                        ├── demo/
+├── client.py         └── _internal_code/                 │   └── Client.java             │   ├── api/
+├── config.py             ├── __init__.py                 ├── core/                       │   │   └── Client.java
+├── errors.py             ├── _internal_aliases.py        │   ├── Cache.java              │   ├── core/
+├── models.py             ├── api.py                      │   └── Engine.java             │   │   └── Engine.java
+├── parser.py             ├── client.py                   ├── model/                      │   ├── model/
+└── utils.py              ├── errors.py                   │   ├── Config.java             │   │   └── Config.java
+                          ├── parser.py                   │   └── User.java               │   └── util/
+                          └── module_1/                   └── util/                       │       └── Parser.java
+                              ├── __init__.py                 ├── Parser.java             └── module_1/
+                              ├── cache.py                    └── Strings.java                └── demo/
+                              ├── config.py                                                       ├── Main.java
+                              ├── models.py                                                       ├── core/
+                              └── utils.py                                                        │   └── Cache.java
+                                                                                                  ├── model/
+                                                                                                  │   └── User.java
+                                                                                                  └── util/
+                                                                                                      └── Strings.java
 ```
 
 **Python**: public imports such as `from sample.cache import VALUE` stay unchanged. Tests, resources, and configuration remain in place; runtime/routes/aliases files must be kept.
 
-**Java**: only physical source locations change, not packages. For example, `Cache.java` moves to `_internal_code/Cache.java` but still declares `package demo.core;`; callers still use `import demo.core.Cache;`. Sources remain under the original compiler root, `src/main/java`. The POM, `src/test/java` and `src/main/resources` stay in place; no Python initializers or routing files are generated.
+**Java**: only physical source locations change, not packages. For example, `Cache.java` moves to `demo/_internal_code/module_1/demo/core/Cache.java` but still declares `package demo.core;`; callers still use `import demo.core.Cache;`. Sources remain under the original compiler root, `src/main/java`. The POM, `src/test/java` and `src/main/resources` stay in place; no Python initializers or routing files are generated.
 
 Both versions were compiled with javac, packaged into JARs and executed to check imports, reflective class identity, resources and matching class inventories. This does not establish compatibility with every Maven/Gradle plugin or imply that real-repository CI has passed.
 
@@ -104,7 +108,7 @@ Both versions were compiled with javac, packaged into JARs and executed to check
 | `--source-dir RELATIVE_PATH` | Tell the tool where production sources live, relative to the selected project; repeatable, usually optional; does not modify the build |
 | `--mode flat\|random` | Defaults to `random` for `shuffle`; add to `inspect` for a complete plan |
 | `--seed INTEGER` | Random seed; generated and recorded if omitted |
-| `--max-depth 1..5` | Maximum random-directory depth, default `3`; does not force multiple levels |
+| `--max-depth 1..5` | Maximum numbered-tree depth, default `3`; does not force levels; Java package suffixes are additional |
 | `--complexity 0..1` | Random mode only, default `0.7`; higher values favor smaller groups, richer branching, and more levels |
 | `--subproject RELATIVE_PATH` | Select an independent project inside the input directory; only that project is snapshotted; omit to use the input project |
 | `--include PATH_OR_PATTERN` | Select implementation files to move, relative to the selected project; repeatable; other files are copied in place |
@@ -159,7 +163,7 @@ Also available as `python -m reposhuffle`. Results are JSON; redirect stdout to 
 - Root and nested project `.gitignore` files are respected, including `!` rules. Matches stay in place even if tracked or selected by `--include`. Unignore parent directories first; global rules and `.git/info/exclude` are not read.
 - `--include` does not inadvertently relocate tests, docs, or fixtures. Git history, virtual environments, caches, and build artifacts are not copied. Input and output must not contain each other.
 - Implementations move into `_internal_code/` (with a numeric prefix suffix on name conflicts): multiple packages in one source root share storage; a single package uses internal storage. **Flat applies to implementation areas, not the entire repository.**
-- Depth starts at storage-root level 0: `--max-depth 3` permits levels 0–3. Complexity controls group size, branching, and depth preferences; nearby values may produce identical layouts.
+- Numbered-tree depth starts at storage-root level 0: `--max-depth 3` permits levels 0–3. Java package-path suffixes add physical depth, reported separately as `physical_files_by_depth`. Complexity controls group size, branching, and depth preferences; nearby values may produce identical layouts.
 - Reproduction requires the same tool and layout versions, inputs, seed, complexity, and other parameters. Current layout version is 5; earlier layouts are not reproduced.
 - In `.md` / `.markdown`, unambiguous local file links and reference definitions are updated to relocated implementations; changes are audited in `manifest.json`. Code examples, directory links, unsupported document syntax/formats, and recognized affected path mentions are left unchanged with `DOCUMENTATION_PATH` warnings in JSON diagnostics. External URLs and logical imports are not rewritten. Link fragments are retained but not verified (`DOCUMENTATION_ANCHOR`); non-UTF-8 documents are not processed (`DOCUMENTATION_ENCODING`). Test/fixture and gitignored documents are never rewritten. The input and `original/` remain unchanged.
 - Package initializers, location-sensitive files, and resource anchors are preserved as needed; scripts retain thin entry points. Module routing tables are required at runtime. See `inspect` fields `role` and `reason` for selection decisions.

@@ -78,6 +78,7 @@ def test_storage_prefix_avoids_case_insensitive_files_and_directories(project, l
         files = {
             "pom.xml": "<project/>",
             f"{root}/demo/Main.java": "package demo; public class Main {}",
+            f"{root}/other/Other.java": "package other; public class Other {}",
         }
     else:
         root = "demo"
@@ -105,11 +106,11 @@ def test_shared_validation_checks_target_directories(project, monkeypatch, confl
     def targets(self, zone, names):
         if conflict == "directory-case":
             return {
-                old: f"{zone}/{'Module' if name == 'A.java' else 'module'}/{name}"
+                old: f"{zone}/{'Module' if name.endswith('/A.java') else 'module'}/{name}"
                 for old, name in names.items()
             }
         return {
-            old: f"{zone}/{'A.java/' if name == 'B.java' else ''}{name}"
+            old: f"{zone}/{'demo/A.java/' if name.endswith('/B.java') else ''}{name}"
             for old, name in names.items()
         }
 

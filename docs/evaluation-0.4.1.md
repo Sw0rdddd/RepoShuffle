@@ -21,6 +21,24 @@ Windows / Python 3.13.13 / JDK 25.0.2，受控构建使用 Maven 3.9.9、Gradle 
 
 这不是对所有编译器、动态配置、插件或运行行为的等价性证明；更多边界见[局限性](limitations.md)，逐项修复见[审查记录](review.md)。
 
-## 远端验证入口
+## 远端实际结果与合并状态
 
-提交本记录时，0.4.1 的分支检查和完整真实仓库矩阵尚未执行，不预写通过结论。先在分支检查 [checks](https://github.com/Sw0rdddd/RepoShuffle/actions/workflows/ci.yml) 及 [完整真实仓库矩阵](https://github.com/Sw0rdddd/RepoShuffle/actions/workflows/compatibility.yml)，没有阻塞后才合并 main，再观察自动运行；以对应提交的日志和附件为准。
+提交 `56468f1` 的 [checks #40706731989](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/40706731989) 八个工具检查任务全部通过。[完整矩阵 #40706732847](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/40706732847) 已完成：Python **20/20**，Java **5/20**，合计 **25/40** 对照任务成功，不能写成完整通过；main 未合并。
+
+Java 成功的是 Jackson Core、Mockito 的双平台，以及 Commons Codec 的 Windows。失败证据包括：Gson 的 PackageLocation 警告被 Werror 拒绝；Commons IO 的 10 项源码目录遍历断言失败；jsoup Javadoc 失败且缺少原生编译输入记录；SpotBugs 原版也因无 Git 元数据而失败；Caffeine 超时/构建失败；部分用例通过/跳过状态不一致。
+
+另定位并修正两项工具问题：显式源码根不再分析无关嵌套构建 fixture（仍完整复制），JUnit 聚合允许合法的零测试容器报告，但仍要求总结果含真实测试节点，拒绝丢失节点或错误报告。使用保存的 Commons Lang Linux XML 做只读重解析，两种种子的 11469 通过、43 跳过及全部节点一致；这不是重新运行上游测试，也不将旧失败运行改写为成功。Windows 的实际跳过差异仍保留为失败。
+
+以上是 `56468f1` 的真实失败记录，不会改写为后续修复的通过证据。保持严格验收，存在阻塞时不合并 main。
+
+## 首轮 Actions 后的兼容性增强
+
+- Java 继续共用分配器，载荷保留原根相对路径后缀，存储位于公共源目录内，并保留原目录。字面 File/Path 引用可保留个别源码锚点，不冻结整个实现目录；实际迁移文件仍逐一核对生产编译输入。
+- 已识别 Maven Javadoc 改为真实源文件列表；源码/Javadoc 路径过滤随迁移调整，并核对选择集合，不关闭原检查。非增量编译增加实际 javac 文件对象跟踪，限定生产 compile 阶段，兼容本地化诊断，不按类名猜文件。
+- 声明 VCS 的 profile 使用真实固定提交、origin 和共享对象元数据；原版/转换版保留真实 dirty 状态。不会检出原路径源码、伪造提交或伪造干净状态，发布本身仍不复制 Git 历史。
+- 报告采用流式 XML/JSON；超时清理子进程，原版失败明确终止无效对照。Caffeine 修正派生测试报告收集范围，保留所有原测试，声明资源及 CI 时间预算；其他环境稳定性设置两版一致。
+- README 的 0.4.1 八文件 Java 示例已重新实际生成，并分别用 javac --release 17 编译两版、打包运行 JAR，核对八个类、导入、反射和资源；四列布局保持不变，省略保留的空目录。
+
+这些增强完成后，本地完整工具测试 **306 通过、1 跳过**（Windows 符号链接权限），包含七项真实 Maven/Gradle 构建用例、字面源码访问的双版编译运行、真实 Git 元数据及超时子进程清理。Ruff 检查/格式检查（46 个文件）、sdist/wheel、隔离安装及生成 Python 独立运行验证通过；70 个本地文档链接/锚点、四列示例及历史记录保留检查通过。工作流矩阵验证默认二十 profile、定点选择、超时预算和未知项目拒绝。
+
+这些增强的远端复验尚未记录为通过；以新提交的 Actions 为准，不沿用首轮或历史通过数。

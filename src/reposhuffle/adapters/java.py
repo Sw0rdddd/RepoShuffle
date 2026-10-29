@@ -8,8 +8,10 @@ No target scripts, effective POMs or Gradle models are executed during planning.
 from __future__ import annotations
 
 import collections
+import posixpath
 import re
 import xml.etree.ElementTree as ET
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 try:
@@ -22,6 +24,8 @@ from ..inventory import _walk_tree, matches
 from ..layout import NumberedLayout
 from ..models import Diagnostic, FileRecord, Inspection, Plan, ShuffleError, SourceUnit
 from ..transform import relocate, storage_prefix
+from .java_build import adapt_maven_plugins
+from .java_paths import source_anchors
 
 _BUILD_FILES = {"pom.xml", "build.gradle", "build.gradle.kts"}
 _SETTINGS = {"settings.gradle", "settings.gradle.kts"}
@@ -77,14 +81,21 @@ def _build_output(path: Path) -> bool:
     )
 
 
-def _projects(source: Path, paths: list[Path], ignored: set[str]) -> dict[Path, str]:
+def _projects(
+    source: Path, paths: list[Path], ignored: set[str], configured: list[str] | None
+) -> dict[Path, str]:
     """Discover semantics only from the shared, nonignored inventory."""
     builds: dict[Path, set[str]] = {}
+    selection = (
+        [(source / root).resolve() for root in configured] if configured is not None else None
+    )
     for path in paths:
         relative = path.relative_to(source)
         if relative.as_posix() in ignored or _AUXILIARY.intersection(relative.parts[:-1]):
             continue
-        if path.name in _BUILD_FILES | _SETTINGS:
+        if path.name in _BUILD_FILES | _SETTINGS and (
+            selection is None or any(root.is_relative_to(path.parent) for root in selection)
+        ):
             builds.setdefault(path.parent, set()).add(path.name)
     projects = {}
     for directory, names in sorted(builds.items()):
@@ -101,6 +112,8 @@ def _projects(source: Path, paths: list[Path], ignored: set[str]) -> dict[Path, 
         if _AUXILIARY.intersection(PurePosixPath(prefix).parts):
             continue
         directory = source / prefix
+        if selection is not None and not any(root.is_relative_to(directory) for root in selection):
+            continue
         ancestors = [base for base in projects if directory.is_relative_to(base)]
         if ancestors and projects[max(ancestors, key=lambda base: len(base.parts))] == "gradle":
             projects.setdefault(directory, "gradle")
@@ -238,7 +251,12 @@ class JavaAdapter:
     suffixes = frozenset({".java"})
     modes = frozenset({"random"})
     strategy = "preserve-java-packages"
-    static_checks = ("java-source-bytes", "java-source-filenames", "source-unit-boundaries")
+    static_checks = (
+        "java-source-bytes",
+        "java-source-filenames",
+        "source-unit-boundaries",
+        "java-source-path-suffix",
+    )
 
     def inspect(
         self,
@@ -252,13 +270,22 @@ class JavaAdapter:
         source = source.expanduser().resolve()
         if not source.is_dir():
             raise ShuffleError(f"Not a project directory: {source}")
+        configured = source_dirs if source_dirs is not None else _configuration(source)
+        selection = (
+            [(source / root).resolve() for root in configured] if configured is not None else None
+        )
+
+        def excluded_output(path: Path) -> bool:
+            return _build_output(path) and (
+                selection is None or any(root.is_relative_to(path.parent) for root in selection)
+            )
+
         result = Inspection(source, language=self.name)
-        paths, ignored = _walk_tree(source, result, exclude_directory=_build_output)
-        projects = _projects(source, paths, ignored)
+        paths, ignored = _walk_tree(source, result, exclude_directory=excluded_output)
+        projects = _projects(source, paths, ignored, configured)
         active = {path for path in paths if path.relative_to(source).as_posix() not in ignored}
         if not result.ok:
             return result
-        configured = source_dirs if source_dirs is not None else _configuration(source)
         roots: dict[str, SourceUnit] = {}
         compiler_roots: dict[Path, tuple[list[str], bool]] = {}
         for project, system in sorted(projects.items()):
@@ -406,6 +433,13 @@ class JavaAdapter:
             result.files.append(
                 FileRecord(relative, sha256, size, role=role, owner=owner, reason=reason)
             )
+        anchors = source_anchors(result, projects)
+        result.files = [
+            replace(record, role="preserved", reason="Java literal filesystem source anchor")
+            if record.path in anchors
+            else record
+            for record in result.files
+        ]
         if not any(record.role == "source" for record in result.files):
             result.diagnostics.append(
                 Diagnostic("NO_IMPLEMENTATION", ".", "No movable Java production sources found")
@@ -459,6 +493,7 @@ class JavaAdapter:
         }
 
     def render(self, plan: Plan, layout: NumberedLayout) -> None:
+        plan.directories.extend(plan.inspection.directories)
         for unit in plan.inspection.source_units:
             records = [
                 record
@@ -467,11 +502,22 @@ class JavaAdapter:
             ]
             if not records:
                 continue
-            zone = str(PurePosixPath(unit.root) / (storage_prefix(plan, unit.root) + "_code"))
-            targets = layout.targets(
-                zone, {record.path: PurePosixPath(record.path).name for record in records}
+            base = posixpath.commonpath(
+                [str(PurePosixPath(record.path).parent) for record in records]
             )
-            relocate(plan, {record.path: targets[record.path] for record in records}, zone)
+            zone = str(PurePosixPath(base) / (storage_prefix(plan, base) + "_code"))
+            names = {
+                record.path: PurePosixPath(record.path).relative_to(unit.root).as_posix()
+                for record in records
+            }
+            targets = layout.targets(zone, names)
+            for record in records:
+                suffix_depth = len(PurePosixPath(names[record.path]).parts)
+                plan.allocation_directories[record.path] = str(
+                    PurePosixPath(targets[record.path]).parents[suffix_depth - 1]
+                )
+            relocate(plan, targets, zone)
+        adapt_maven_plugins(plan, _ant_match)
 
     def validate(self, plan: Plan, changed: set[str]) -> None:
         _validate_maven_filters(plan)
@@ -484,5 +530,8 @@ class JavaAdapter:
                 raise ShuffleError(f"Java source filename changed: {record.path}")
             if not PurePosixPath(target).is_relative_to(PurePosixPath(record.owner)):
                 raise ShuffleError(f"Java source crossed a build boundary: {record.path}")
+            suffix = PurePosixPath(record.path).relative_to(record.owner).parts
+            if PurePosixPath(target).parts[-len(suffix) :] != suffix:
+                raise ShuffleError(f"Java source package-path suffix changed: {record.path}")
             if hashes[target] != record.sha256:
                 raise ShuffleError(f"Java source bytes changed: {record.path}")

@@ -27,6 +27,26 @@ def test_junit_keeps_duplicate_nodes_and_collection_changes(tmp_path):
     assert not compare(original, junit_result(xml, None))["comparable"]
 
 
+def test_junit_streams_cases_and_json_writer_does_not_materialize_documents(tmp_path, monkeypatch):
+    xml = tmp_path / "tests.xml"
+    xml.write_text(
+        '<testsuite tests="3"><testcase classname="demo" name="same"/>'
+        '<testcase classname="demo" name="same"><failure>details</failure></testcase>'
+        '<testcase classname="demo" name="skip"><skipped>reason</skipped></testcase></testsuite>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(harness.ET, "parse", lambda *args, **kwargs: pytest.fail("loaded XML tree"))
+    result = harness.junit_result(xml, 1)
+    assert result["complete"]
+    assert result["cases"] == {"demo::same": ["passed", "failure"], "demo::skip": ["skipped"]}
+    monkeypatch.setattr(
+        harness.json, "dumps", lambda *args, **kwargs: pytest.fail("materialized JSON")
+    )
+    target = tmp_path / "report.json"
+    harness.write_json(target, result)
+    assert json.loads(target.read_text(encoding="utf-8")) == result
+
+
 def test_snapshot_parameter_paths_are_normalized_exactly(tmp_path):
     xml = tmp_path / "tests.xml"
     snapshot = tmp_path / "original"
@@ -79,6 +99,85 @@ def test_acceptable_requires_baseline_artifacts_and_complete_comparison():
     report["original"] = snapshot
     report["variants"]["flat-42"]["comparison"] = {"comparable": False}
     assert not harness.acceptable(report)
+
+
+@pytest.mark.parametrize("origin", [None, "https://example.invalid/upstream.git"])
+def test_snapshot_vcs_preserves_real_revision_and_dirty_state_without_source_copies(
+    tmp_path, origin
+):
+    import subprocess
+
+    from reposhuffle import apply_plan, build_plan
+
+    source = tmp_path / "source"
+    java = source / "src/main/java/demo/Main.java"
+    java.parent.mkdir(parents=True)
+    java.write_text("package demo; public class Main {}", encoding="utf-8")
+    (source / "pom.xml").write_text("<project/>", encoding="utf-8")
+    subprocess.run(["git", "init", str(source)], check=True, capture_output=True)
+    if origin is not None:
+        subprocess.run(
+            ["git", "-C", str(source), "remote", "add", "origin", origin],
+            check=True,
+            capture_output=True,
+        )
+    subprocess.run(["git", "-C", str(source), "add", "."], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(source),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-m",
+            "fixture",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    revision = subprocess.check_output(
+        ["git", "-C", str(source), "rev-parse", "HEAD"], text=True
+    ).strip()
+    plan = build_plan(source, language="java", seed=42)
+    output = apply_plan(plan)
+    work = tmp_path / "work"
+    work.mkdir()
+    for label in ("original", "shuffled"):
+        snapshot = output / label
+        evidence = harness.snapshot_vcs(source, snapshot, revision, work, label, 30)
+        assert evidence == {"exit": 0, "revision": revision, "dirty": label == "shuffled"}
+        assert (snapshot / ".git/objects/info/alternates").is_file()
+        actual = subprocess.run(
+            ["git", "-C", str(snapshot), "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert actual.stdout.strip() == (origin or "")
+        assert (snapshot / "src/main/java/demo/Main.java").exists() == (label == "original")
+    assert (
+        output / "shuffled" / plan.mapping["src/main/java/demo/Main.java"]
+    ).read_bytes() == java.read_bytes()
+
+
+def test_evaluation_timeout_terminates_child_processes(tmp_path):
+    import os
+    import sys
+    import time
+
+    ready, leaked = tmp_path / "ready", tmp_path / "leaked"
+    child = f"from pathlib import Path; import time; Path({str(ready)!r}).write_text('ready'); time.sleep(5); Path({str(leaked)!r}).write_text('leaked')"
+    parent = f"import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(30)"
+    result = harness.run(
+        [sys.executable, "-c", parent], tmp_path, tmp_path / "process.log", os.environ.copy(), 3
+    )
+    assert result["timeout"] and result["exit"] is None
+    assert ready.exists()
+    time.sleep(3)
+    assert not leaked.exists()
 
 
 def test_initialize_submodules_only_when_declared(tmp_path, monkeypatch):
@@ -219,7 +318,32 @@ def test_java_merges_report_scopes_without_collapsing_duplicate_nodes(tmp_path):
     assert not harness.junit_results(paths, 2, tmp_path)["complete"]
 
 
-def test_java_evaluation_uses_shared_pairing_and_strict_artifacts(tmp_path, monkeypatch):
+def test_java_accepts_valid_empty_container_reports_but_requires_real_cases(tmp_path):
+    empty = tmp_path / "target/TEST-container.xml"
+    empty.parent.mkdir()
+    empty.write_text('<testsuite tests="0" errors="0" failures="0" skipped="0"/>', encoding="utf-8")
+    actual = tmp_path / "target/TEST-leaf.xml"
+    actual.write_text(
+        '<testsuite tests="1"><testcase classname="demo.Test" name="value"/></testsuite>',
+        encoding="utf-8",
+    )
+    result = harness.junit_results([empty, actual], 0, tmp_path)
+    assert result["complete"]
+    assert result["counts"] == {"passed": 1}
+    assert list(result["cases"]) == ["target::demo.Test::value"]
+    assert not harness.junit_results([empty], 0, tmp_path)["complete"]
+    empty.write_text('<testsuite tests="1" errors="0" failures="0"/>', encoding="utf-8")
+    assert not harness.junit_results([empty, actual], 0, tmp_path)["complete"]
+    empty.write_text(
+        '<testsuite tests="0"><error message="collection failed"/></testsuite>', encoding="utf-8"
+    )
+    assert not harness.junit_results([empty, actual], 0, tmp_path)["complete"]
+
+
+@pytest.mark.parametrize("baseline_exit", [0, 1])
+def test_java_evaluation_uses_shared_pairing_and_strict_artifacts(
+    tmp_path, monkeypatch, baseline_exit
+):
     import zipfile
 
     source = tmp_path / "sources/demo"
@@ -249,12 +373,15 @@ def test_java_evaluation_uses_shared_pairing_and_strict_artifacts(tmp_path, monk
     commands = []
 
     def run(command, cwd, log, env, timeout):
+        exit_code = 0
         if command == ["java", "-version"]:
             log.write_text('openjdk version "17.0.12"', encoding="utf-8")
         elif command[-1] == "--version":
             log.write_text("Apache Maven 3.9.9", encoding="utf-8")
         else:
             commands.append(command)
+            exit_code = baseline_exit if cwd.name == "original" else 0
+            log.write_text("", encoding="utf-8")
             assert command[-2:] == ["clean", "verify"]
             xml = cwd / "target/surefire-reports/TEST-demo.xml"
             xml.parent.mkdir(parents=True)
@@ -273,27 +400,29 @@ def test_java_evaluation_uses_shared_pairing_and_strict_artifacts(tmp_path, monk
                 "\n".join(str(path.resolve()) for path in cwd.glob("src/main/java/**/*.java")),
                 encoding="utf-8",
             )
-        return {"exit": 0, "timeout": False, "seconds": 0}
+        return {"exit": exit_code, "timeout": False, "seconds": 0}
 
     monkeypatch.setattr(harness, "run", run)
     output = tmp_path / "results"
-    assert (
-        harness.main(
-            [
-                "--profiles",
-                str(profiles),
-                "--repos-root",
-                str(tmp_path / "sources"),
-                "--output",
-                str(output),
-                "--seeds",
-                "42",
-                "123",
-            ]
-        )
-        == 0
-    )
+    assert harness.main(
+        [
+            "--profiles",
+            str(profiles),
+            "--repos-root",
+            str(tmp_path / "sources"),
+            "--output",
+            str(output),
+            "--seeds",
+            "42",
+            "123",
+        ]
+    ) == (1 if baseline_exit else 0)
     report = json.loads((output / "summary.json").read_text(encoding="utf-8"))["demo"]
+    if baseline_exit:
+        assert len(commands) == 1
+        assert report["variants"]["random-42"]["baseline_failed"]
+        assert not harness.acceptable(report)
+        return
     assert list(report["variants"]) == ["random-42", "random-123"]
     assert len(commands) == 3
     assert harness.acceptable(report)
@@ -330,6 +459,26 @@ def test_compiler_inputs_record_actual_paths_not_class_filename_guesses(tmp_path
         ) == payload
     report.unlink()
     assert harness.compiler_inputs(snapshot, system, tmp_path / "traces")["exit"] == 1
+
+
+def test_maven_verbose_input_trace_does_not_count_test_compilation(tmp_path):
+    main = tmp_path / "src/main/java/Unexpected.java"
+    test = tmp_path / "src/test/java/Test.java"
+    log = tmp_path / "build.log"
+    log.write_text(
+        f"[INFO] --- compiler:3.13.0:compile (default-compile) @ demo ---\n"
+        f"[parsing started SimpleFileObject[{main}]]\n"
+        f"[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ demo ---\n"
+        f"[parsing started SimpleFileObject[{test}]]\n",
+        encoding="utf-8",
+    )
+    result = harness.compiler_inputs(tmp_path, "maven", build_log=log)
+    assert result["files"] == ["src/main/java/Unexpected.java"]
+    assert result["parsed_sources"] == 1
+    log.write_text(
+        "Using the MultiThreadedBuilder\n" + log.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    assert harness.compiler_inputs(tmp_path, "maven", build_log=log)["exit"] == 1
 
 
 @pytest.mark.parametrize("missing", ["original", "shuffled"])

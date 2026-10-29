@@ -65,34 +65,38 @@ reposhuffle shuffle ./java-demo --language java --mode random --seed 42
 
 ## 随机布局示例
 
-两种语言都使用 random、seed=42、默认复杂度 `0.7`、最大深度 `3`，布局版本为 5：
+两种语言都使用 random、seed=42、默认复杂度 `0.7`、最大深度 `3`，布局版本为 5。下图只展示源码文件，Java 保留的空目录省略：
 - **Python**：八个模块，示例在 0.3.4 下实际生成，不作为新增的 0.4.0 验证记录。
-- **Java**：八个生产文件，示例在 0.4.0 下实际生成，源码根自动识别为 `src/main/java`。
+- **Java**：八个生产文件，示例在 0.4.1 下实际生成；源码根为 `src/main/java`，额外保留原包路径后缀，深度参数只控制随机编号树。
 
 ```text
 # Python 原始         # Python 随机                   # Java 原始                 # Java 随机
 sample/               sample/                         src/main/java/              src/main/java/
-├── __init__.py       ├── __init__.py                 └── demo/                   └── _internal_code/
-├── api.py            ├── _internal_runtime.py            ├── Main.java               ├── Cache.java
-├── cache.py          ├── _internal_routes.py             ├── api/                    ├── Config.java
-├── client.py         └── _internal_code/                 │   └── Client.java         ├── Main.java
-├── config.py             ├── __init__.py                 ├── core/                   ├── Strings.java
-├── errors.py             ├── _internal_aliases.py        │   ├── Cache.java          └── module_1/
-├── models.py             ├── api.py                      │   └── Engine.java             ├── Client.java
-├── parser.py             ├── client.py                   ├── model/                      ├── Engine.java
-└── utils.py              ├── errors.py                   │   ├── Config.java             ├── Parser.java
-                          ├── parser.py                   │   └── User.java               └── User.java
-                          └── module_1/                   └── util/
-                              ├── __init__.py                 ├── Parser.java
-                              ├── cache.py                    └── Strings.java
-                              ├── config.py
-                              ├── models.py
-                              └── utils.py
+├── __init__.py       ├── __init__.py                 └── demo/                   └── demo/
+├── api.py            ├── _internal_runtime.py            ├── Main.java               └── _internal_code/
+├── cache.py          ├── _internal_routes.py             ├── api/                        ├── demo/
+├── client.py         └── _internal_code/                 │   └── Client.java             │   ├── api/
+├── config.py             ├── __init__.py                 ├── core/                       │   │   └── Client.java
+├── errors.py             ├── _internal_aliases.py        │   ├── Cache.java              │   ├── core/
+├── models.py             ├── api.py                      │   └── Engine.java             │   │   └── Engine.java
+├── parser.py             ├── client.py                   ├── model/                      │   ├── model/
+└── utils.py              ├── errors.py                   │   ├── Config.java             │   │   └── Config.java
+                          ├── parser.py                   │   └── User.java               │   └── util/
+                          └── module_1/                   └── util/                       │       └── Parser.java
+                              ├── __init__.py                 ├── Parser.java             └── module_1/
+                              ├── cache.py                    └── Strings.java                └── demo/
+                              ├── config.py                                                       ├── Main.java
+                              ├── models.py                                                       ├── core/
+                              └── utils.py                                                        │   └── Cache.java
+                                                                                                  ├── model/
+                                                                                                  │   └── User.java
+                                                                                                  └── util/
+                                                                                                      └── Strings.java
 ```
 
 **Python**：公开导入如 `from sample.cache import VALUE` 无需修改；测试、资源及配置保留原位。runtime/routes/aliases 辅助文件必须保留。
 
-**Java**：只改变源码存放位置，不改变包。例如 `Cache.java` 移到 `_internal_code/Cache.java`，文件内仍是 `package demo.core;`，调用方仍用 `import demo.core.Cache;`。源码仍位于原编译根 `src/main/java` 内；`pom.xml`、`src/test/java`、`src/main/resources` 保留原位，不生成 Python 的初始化或路由文件。
+**Java**：只改变源码存放位置，不改变包。例如 `Cache.java` 移到 `demo/_internal_code/module_1/demo/core/Cache.java`，文件内仍是 `package demo.core;`，调用方仍用 `import demo.core.Cache;`。源码仍位于原编译根 `src/main/java` 内；`pom.xml`、`src/test/java`、`src/main/resources` 保留原位，不生成 Python 的初始化或路由文件。
 
 本示例已分别用 javac 编译两版、生成并运行 JAR，验证导入、反射类名、资源和类清单一致；不代表所有 Maven/Gradle 插件或真实仓库 CI 已通过。
 
@@ -104,7 +108,7 @@ sample/               sample/                         src/main/java/            
 | `--source-dir 相对路径` | 告诉工具生产源码在哪里，相对于选定的项目根；可重复，通常可省略；不修改构建配置 |
 | `--mode flat\|random` | `shuffle` 默认 `random`；`inspect` 加此参数可查看完整计划 |
 | `--seed 整数` | 随机种子；省略则生成并记录 |
-| `--max-depth 1..5` | 随机目录深度上限，默认 `3`；不强制生成多层 |
+| `--max-depth 1..5` | 随机编号树深度上限，默认 `3`；不强制多层，Java 包路径后缀不计入 |
 | `--complexity 0..1` | 仅限随机模式，默认 `0.7`；越大，文件分组越细、分支和层级越丰富 |
 | `--subproject 相对路径` | 从输入目录中选择一个独立项目，只为该项目生成快照；不写则处理整个输入项目 |
 | `--include 路径或通配符` | 筛选要移动的实现文件，相对于选定的项目根；可重复，其余文件仍复制、保留原位 |
@@ -159,7 +163,7 @@ reposhuffle shuffle ./workspace --subproject services/api --language java --sour
 - 默认遵循项目内根级及嵌套 `.gitignore`，支持 `!`；即使已跟踪或被 `--include` 选中，匹配项仍不移动。父目录须先取消忽略；不读取全局规则或 `.git/info/exclude`。
 - 测试、文档、fixture 不因 `--include` 被意外搬走。Git 历史、虚拟环境、缓存和构建产物不复制；输入与输出不能互相包含。
 - 实现移入 `_internal_code/`（名称冲突时为前缀追加数字）：同一源码根下多包共享存储，单包使用包内存储。**扁平化针对实现区，不是整个仓库。**
-- 深度从存储根的第 0 层计起，`--max-depth 3` 允许第 0～3 层。复杂度控制目录文件数、分支和层级偏好，相邻值可能产生相同布局。
+- 编号树深度从存储根的第 0 层计起，`--max-depth 3` 允许第 0～3 层；Java 还保留原包路径后缀，实际物理深度另记为 `physical_files_by_depth`。复杂度控制目录文件数、分支和层级偏好，相邻值可能产生相同布局。
 - 复现需相同工具及布局版本、输入、种子和复杂度等参数。当前布局版本为 5，不复现旧版布局。
 - `.md` / `.markdown` 中明确的本地文件链接及引用式链接定义自动指向迁移后的实现，修改记录写入 `manifest.json`。代码示例、目录链接、不支持的文档语法/格式及可识别的受影响路径只在 JSON diagnostics 中发出 `DOCUMENTATION_PATH` 警告，不改写；外部 URL、逻辑导入不改。锚点保留但不验证（`DOCUMENTATION_ANCHOR`）；非 UTF-8 文档不处理（`DOCUMENTATION_ENCODING`）。测试/fixture 和 gitignored 文档不改写。输入项目与 `original/` 均保持原样。
 - 包初始化、位置敏感文件和资源锚点按需保留，脚本保留薄入口。模块路由表是运行必需文件；选择与保留原因可查看 `inspect` 的 `role`、`reason`。
