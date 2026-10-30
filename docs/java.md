@@ -12,7 +12,7 @@ reposhuffle shuffle ./demo --language java --mode random --seed 42
 
 - 真正移动生产 `.java` 文件，保持文件名和原始字节，不改 package/import/类名，不保留原路径源码副本，不生成加载器。随机分配后保留原源码根相对路径作为后缀，以保持包路径检查所需的目录结尾。
 - 首期按源码根和已识别的构建单元分组；识别标准 `src/main/java`，支持 Gradle 子项目继承根构建配置。发现并非完整有效 POM 或 Gradle 模型解析。
-- 测试、资源、其他语言和原目录保留；`module-info.java`、`package-info.java` 及可静态识别的字面源码路径/文件名引用保留为锚点。约定生产版本根（`src/main/java9`、`src/mainRelease9/java` 等）与普通根同相对路径的覆盖文件也保留，避免模块源码合并产生重复类；不因此冻结整个源码目录。存储区放在可移动文件的公共父目录内，尽量不改变外层目录形状。
+- 测试、资源、其他语言和原目录保留；`module-info.java`、`package-info.java` 及可静态识别的字面源码路径/文件名后缀片段保留为个别锚点。约定生产版本根（`src/main/java9`、`src/mainRelease9/java` 等）与普通根同相对路径的覆盖文件也保留，避免模块源码合并产生重复类；不因此冻结整个源码目录。存储区放在可移动文件的公共父目录内，尽量不改变外层目录形状。
 - 已识别 Maven Javadoc 插件使用实际文件列表；源码插件过滤随迁移路径适配并核对原选择结果。无实际选择变化时保留原插件字节，需要改写时保留换行格式。不禁用 doclint、Werror、测试或其他上游检查，变更记入清单。
 - `--max-depth` 限制随机编号树，Java 包路径后缀另计。清单的 `allocation_directories` 记录编号分配位置，`physical_files_by_depth` 记录相对存储根的实际深度。
 - 规划无需 JDK，不执行 Maven/Gradle，不检查 Java 语法。`plan.ok` 只是当前检查结果，不证明编译、运行或发布成功。

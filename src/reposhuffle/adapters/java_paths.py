@@ -70,11 +70,13 @@ def source_anchors(inspection: Inspection, projects: dict[Path, str]) -> set[str
                 value = json.loads(literal[0])
             except ValueError:
                 continue
-            if value.endswith(".java") and "/" not in value and "\\" not in value:
+            suffix = value.replace("\\", "/").lstrip("/")
+            if suffix.endswith(".java"):
                 anchors.update(
                     candidate
-                    for candidate in names.get(value, [])
-                    if (inspection.source / candidate).is_relative_to(project)
+                    for candidate in names.get(suffix.rsplit("/", 1)[-1], [])
+                    if (candidate == suffix or candidate.endswith("/" + suffix))
+                    and (inspection.source / candidate).is_relative_to(project)
                 )
         values: dict[str, str] = {}
 

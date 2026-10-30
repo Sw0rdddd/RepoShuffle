@@ -491,15 +491,59 @@ public class PathsTest {
         )
 
 
-def test_literal_java_filename_is_a_conservative_individual_source_anchor(project):
+@pytest.mark.parametrize(
+    "literal", ["Helper.java", "/Helper.java", "demo/Helper.java", "src/main/java/demo/Helper.java"]
+)
+def test_literal_java_filename_is_a_conservative_individual_source_anchor(project, literal):
     files = sources()
     files["src/test/java/SourceWalk.java"] = (
-        'class SourceWalk { String observedName = "Helper.java"; }'
+        f'class SourceWalk {{ String observedName = "{literal}"; }}'
     )
     plan = build_plan(project(files), seed=42)
     assert plan.ok, plan.to_dict()
     assert plan.mapping["src/main/java/demo/Helper.java"] == "src/main/java/demo/Helper.java"
     assert plan.mapping["src/main/java/demo/Main.java"] != "src/main/java/demo/Main.java"
+
+
+def test_package_derived_source_reader_preserves_only_the_observed_file(project, tmp_path):
+    if not shutil.which("javac") or not shutil.which("java"):
+        pytest.skip("JDK not installed")
+    files = sources()
+    files["src/test/java/SourceWalk.java"] = """public class SourceWalk {
+        public static void main(String[] args) throws Exception {
+            String directory = "demo".replace('.', '/');
+            try (var reader = new java.io.FileReader("src/main/java/" + directory + "/Helper.java")) {
+                if (reader.read() != 'p') throw new AssertionError();
+            }
+        }
+    }"""
+    plan = build_plan(project(files), seed=42)
+    assert plan.ok, plan.to_dict()
+    assert plan.mapping["src/main/java/demo/Main.java"] != "src/main/java/demo/Main.java"
+    output = apply_plan(plan)
+    classes = tmp_path / "classes"
+    classes.mkdir()
+    subprocess.run(
+        [
+            "javac",
+            "--release",
+            "17",
+            "-d",
+            str(classes),
+            str(output / "original/src/test/java/SourceWalk.java"),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=60,
+    )
+    for variant in ("original", "shuffled"):
+        subprocess.run(
+            ["java", "-cp", str(classes), "SourceWalk"],
+            cwd=output / variant,
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
 
 
 @pytest.mark.parametrize("already_file_based", [False, True])

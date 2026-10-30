@@ -22,4 +22,8 @@ Windows / Python 3.13.13 / JDK 25.0.2；受控构建使用 Maven 3.9.9、Gradle 
 
 0.4.1 的 [f644789 定点矩阵](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/41019054633)中，Commons CLI 双平台及 Commons CSV Linux 通过；CSV Windows 未转换原版因换行差异失败。JSON-java 双平台在构建前被双 Maven/Gradle 标识歧义拒绝，未执行上游测试，因此不作为兼容通过；该候选撤换为 Commons Text，不建立备选配置组。
 
+提交 `6fcaadd` 的 [checks #41020628365](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/41020628365) 八项通过；[首轮完整矩阵 #41020629212](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/41020629212) 尚未完整通过。CSV、CLI 双平台已通过；Gson Windows 在安装 Maven 时遇 HTTP 404，未执行上游测试；Commons Text 两版原始节点相同，但转换版各有一个源码读取错误，因此仍判失败。
+
+Text 的失败表达式为包名计算结果与字面文件名片段拼接的 FileReader 路径。随后扩展通用字面路径后缀锚点，不做仓库名特判、不冻结整片实现；增加的三项后缀回归在修复前实际失败，修复后完整工具测试 **319 通过、1 跳过**，并实际编译执行双版包名拼接 FileReader 受控工程。修复后的 Ruff、sdist/wheel、隔离安装、两种 Adapter 发布和 80 个文档链接/锚点及历史/四列示例检查通过。此为后续工作树本地验证，不改写 `6fcaadd` 的真实失败。
+
 0.5.0 的新完整矩阵尚未记录为通过。仅当十个 Java 仓库双平台、两个 seed 完整通过，工具检查及 Python 回归也无阻塞，才合并 main；之后仍检查 main 自动触发的 Actions。
