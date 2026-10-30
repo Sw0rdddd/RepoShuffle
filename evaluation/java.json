@@ -13,11 +13,11 @@
     "reports": ["target/surefire-reports/TEST-*.xml", "target/failsafe-reports/TEST-*.xml"],
     "artifacts": ["target/*.jar"]
   },
-  "commons-io": {
+  "commons-csv": {
     "language": "java",
-    "url": "https://github.com/apache/commons-io.git",
-    "revision": "be0b1eaea246aba841510807484a6ddd6ee5fcdb",
-    "ref": "rel/commons-io-2.18.0",
+    "url": "https://github.com/apache/commons-csv.git",
+    "revision": "67f0d6b30465d817a341b2e9cd31660a646e980c",
+    "ref": "rel/commons-csv-1.12.0",
     "jdk": 17,
     "build_system": "maven",
     "build_version": "3.9.9",
@@ -92,32 +92,31 @@
     "reports": ["mockito-core/build/test-results/test/TEST-*.xml"],
     "artifacts": ["mockito-core/build/libs/*.jar"]
   },
-  "caffeine": {
+  "commons-cli": {
     "language": "java",
-    "url": "https://github.com/ben-manes/caffeine.git",
-    "revision": "b0723da5976ebb52069f6b0cccfcf44186c3fdf3",
-    "ref": "v3.1.8",
-    "timeout": 7200,
+    "url": "https://github.com/apache/commons-cli.git",
+    "revision": "698b238276c0e22e97e4aec703a0b00201d29666",
+    "ref": "rel/commons-cli-1.9.0",
     "jdk": 17,
-    "build_system": "gradle",
-    "build_version": "8.3-rc-3",
-    "source_dirs": ["caffeine/src/main/java"],
-    "tasks": ["--max-workers=2", "clean", ":caffeine:test", ":caffeine:jar"],
-    "reports": ["caffeine/build/reports/*/results/TEST-*.xml"],
-    "artifacts": ["caffeine/build/libs/*.jar"]
+    "build_system": "maven",
+    "build_version": "3.9.9",
+    "source_dirs": ["src/main/java"],
+    "tasks": ["clean", "verify"],
+    "reports": ["target/surefire-reports/TEST-*.xml", "target/failsafe-reports/TEST-*.xml"],
+    "artifacts": ["target/*.jar"]
   },
-  "junit5": {
+  "json-java": {
     "language": "java",
-    "url": "https://github.com/junit-team/junit5.git",
-    "revision": "6430ba4f653f6ae42f326cd0731b259ee699c719",
-    "ref": "r5.11.4",
-    "jdk": 21,
-    "build_system": "gradle",
-    "build_version": "8.9",
-    "source_dirs": ["junit-platform-commons/src/main/java", "junit-jupiter-api/src/main/java"],
-    "tasks": ["clean", ":junit-platform-commons:test", ":junit-platform-commons:jar", ":junit-jupiter-api:test", ":junit-jupiter-api:jar"],
-    "reports": ["junit-platform-commons/build/test-results/*/TEST-*.xml", "junit-jupiter-api/build/test-results/*/TEST-*.xml"],
-    "artifacts": ["junit-platform-commons/build/libs/*.jar", "junit-jupiter-api/build/libs/*.jar"]
+    "url": "https://github.com/stleary/JSON-java.git",
+    "revision": "f9b5587c87aaf02e4a5ed1991d48d6c05993624a",
+    "ref": "20240303",
+    "jdk": 17,
+    "build_system": "maven",
+    "build_version": "3.9.9",
+    "source_dirs": ["src/main/java"],
+    "tasks": ["clean", "package"],
+    "reports": ["target/surefire-reports/TEST-*.xml"],
+    "artifacts": ["target/*.jar"]
   },
   "spotbugs": {
     "language": "java",

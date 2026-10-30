@@ -54,3 +54,11 @@ Java 通过项为 jsoup/Jackson Core 双平台，以及 Gson、Mockito、Commons
 本轮本地完整工具测试 **314 通过、1 跳过**（Windows 符号链接权限），包含八项 Maven/Gradle 受控构建用例。新增文件名锚点、两项 CRLF/无操作及版本覆盖回归，在内存切回 `afce126` 算法时四项均失败，恢复当前实现后通过；版本覆盖双版均以 javac 编译执行。自定义生产 source set 确实进入 JAR，采集器记录其源码；未选中 JAR 时拒绝证据，测试编译反例仍未获误认。原先关闭的 Gradle XML 报告也在受控工程中采集到真实测试结果。工作流回归核对二十 profile、两个 seed 完整覆盖、长任务预算和未知选择拒绝。
 
 Ruff 检查/格式检查、sdist → wheel 构建、隔离安装和两种 Adapter 发布验证通过；生成 Python 可独立运行。70 个文档链接/锚点、四列示例及历史记录保留检查通过。本轮远端复验尚未记录为通过，仍不合并 main。
+
+## 第三轮状态与公开配置调整
+
+提交 `45e4956` 的 [checks #41006751840](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/41006751840) 八项通过；[矩阵 #41006751423](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/41006751423) 仍在执行，已完成 Python **20/20**，以及 Java 的 Commons Lang/Codec、Gson、jsoup、Jackson Core、Mockito、SpotBugs 七仓库双平台通过。Commons IO、JUnit5 双平台失败；Caffeine 至少一项未转换原版异步断言失败，其余未完成，不写成完整通过。
+
+经用户授权，公开配置将 Commons IO → Commons CSV、JUnit5 → JSON-java、Caffeine → Commons CLI，仍固定十仓库；具体失败、构建范围与未覆盖能力写入[局限性](limitations.md#真实仓库替换与未覆盖场景)。不删除旧失败、不缩减原仓库套件冒充通过、不为新仓库修改转换规则。新项仅在 Actions 执行完整声明范围的配对测试；验证尚未完成，0.5.0 整理及 main 合并继续受完整验收门槛约束。
+
+配置调整后，本地测评相关单测 **26 通过**，Ruff 检查/格式检查、73 个文档链接/锚点及四列示例/历史记录检查通过。本次没有修改转换源码，没有在本地运行新增真实仓库；新增三项的远端通过数尚未记录。

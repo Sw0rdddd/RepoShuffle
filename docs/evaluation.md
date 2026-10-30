@@ -24,7 +24,7 @@ CI 使用 Windows/Linux、seed=42/123。推送 main、每周一北京时间 00:0
 
 JUnit 与 JSON 报告流式处理，保留全部节点、重复次数和结果，不为大规模测试缩减范围。Gradle 对实际调度的 Test 任务启用 JUnit XML 报告，不更改测试或断言。构建超时会清理进程树；原版构建/测试失败则立即记录失败，不继续生成可被误解为有效对照的转换版结果。
 
-profile 可声明真实 VCS 元数据环境、JVM 资源/并发选项和 CI 超时预算；两版一致使用，不以跳过测试替代资源配置。手动 Actions 可用 `projects=java/jsoup,java/junit5` 定点复验同一公开配置；main 推送和定时仍默认完整矩阵。Caffeine 保留完整 `:caffeine:test`，从上游实际配置的报告目录收集全部派生测试任务 XML，未换成小范围套件。工作流按声明的超时预算为长任务拆分 seed，每个 seed 仍独立执行原版及完整转换版测试；附件名称带 seed 组，避免六小时任务上限吞掉全部证据。
+profile 可声明真实 VCS 元数据环境、JVM 资源/并发选项和 CI 超时预算；两版一致使用，不以跳过测试替代资源配置。手动 Actions 可用 `projects=java/jsoup,java/commons-csv` 定点复验同一公开配置；main 推送和定时仍默认完整矩阵。经授权替换 Commons IO、JUnit5、Caffeine 后，当前仍为十仓库；原失败、替换原因和未覆盖范围见[局限性](limitations.md#真实仓库替换与未覆盖场景)。不将更换测试集表述为原仓库已兼容。工作流按声明的超时预算为长任务拆分 seed，每个 seed 仍独立执行原版及完整转换版测试；附件名称带 seed 组，避免六小时任务上限吞掉全部证据。
 
 测试和构建会执行上游代码，应使用隔离环境。使用前阅读脚本 `--help`；输出必须是新目录，追加仅限 `--append --projects ...`。
 

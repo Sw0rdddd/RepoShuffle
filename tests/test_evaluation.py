@@ -555,7 +555,7 @@ def test_java_profiles_pin_ten_real_repositories_and_explicit_build_scopes():
         )
 
 
-@pytest.mark.parametrize("selected", ["", "java/caffeine", "unknown"])
+@pytest.mark.parametrize("selected", ["", "java/long-task", "unknown"])
 def test_workflow_seed_shards_preserve_complete_profile_coverage(tmp_path, selected):
     import os
     import subprocess
@@ -567,10 +567,16 @@ def test_workflow_seed_shards_preserve_complete_profile_coverage(tmp_path, selec
     program = textwrap.dedent(
         workflow.split("python - <<'PY'\n", 1)[1].split("\n          PY", 1)[0]
     )
+    configuration = tmp_path / "evaluation"
+    configuration.mkdir()
+    for language in ("python", "java"):
+        profiles = {f"project-{index}": {} for index in range(9)}
+        profiles["long-task"] = {"timeout": 7200 if language == "java" else 900}
+        (configuration / f"{language}.json").write_text(json.dumps(profiles), encoding="utf-8")
     output = tmp_path / "matrix.txt"
     result = subprocess.run(
         [sys.executable, "-c", program],
-        cwd=root,
+        cwd=tmp_path,
         env={**os.environ, "SELECTED_PROJECTS": selected, "GITHUB_OUTPUT": str(output)},
         capture_output=True,
         text=True,
