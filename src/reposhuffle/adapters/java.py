@@ -25,7 +25,7 @@ from ..layout import NumberedLayout
 from ..models import Diagnostic, FileRecord, Inspection, Plan, ShuffleError, SourceUnit
 from ..transform import relocate, storage_prefix
 from .java_build import adapt_maven_plugins
-from .java_paths import source_anchors
+from .java_paths import overlay_anchors, source_anchors
 
 _BUILD_FILES = {"pom.xml", "build.gradle", "build.gradle.kts"}
 _SETTINGS = {"settings.gradle", "settings.gradle.kts"}
@@ -434,9 +434,18 @@ class JavaAdapter:
                 FileRecord(relative, sha256, size, role=role, owner=owner, reason=reason)
             )
         anchors = source_anchors(result, projects)
+        overlays = overlay_anchors(result, projects)
         result.files = [
-            replace(record, role="preserved", reason="Java literal filesystem source anchor")
-            if record.path in anchors
+            replace(
+                record,
+                role="preserved",
+                reason=(
+                    "Java literal filesystem source anchor"
+                    if record.path in anchors
+                    else "Java production source-set overlay anchor"
+                ),
+            )
+            if record.path in anchors or record.path in overlays
             else record
             for record in result.files
         ]

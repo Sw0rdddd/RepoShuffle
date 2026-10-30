@@ -416,22 +416,37 @@ def jar_inventory(snapshot: Path, patterns: list[str]) -> dict:
 
 
 _GRADLE_COMPILER_TRACE = """import org.gradle.api.tasks.compile.JavaCompile
-import org.gradle.api.plugins.JavaPluginExtension
+import org.gradle.api.tasks.bundling.Jar
+import org.gradle.api.tasks.testing.Test
 import groovy.json.JsonOutput
 
+def emit = { payload ->
+    def directory = new File(System.getProperty('reposhuffle.compilerInputs'))
+    directory.mkdirs()
+    def report = File.createTempFile('compile-', '.json', directory)
+    report.setText(JsonOutput.toJson(payload), 'UTF-8')
+}
 gradle.beforeProject { project ->
-    project.plugins.withId('java') {
-        def main = project.extensions.getByType(JavaPluginExtension).sourceSets.getByName('main')
-        project.tasks.named(main.compileJavaTaskName, JavaCompile).configure { compile ->
-            compile.doLast {
-                def directory = new File(System.getProperty('reposhuffle.compilerInputs'))
-                directory.mkdirs()
-                def report = File.createTempFile('compile-', '.json', directory)
-                report.setText(JsonOutput.toJson(compile.source.files.collect {
-                    it.canonicalPath
-                }.sort()), 'UTF-8')
-            }
+    project.tasks.withType(JavaCompile).configureEach { compile ->
+        compile.doLast {
+            emit([kind: 'compile', sources: compile.source.files.collect { it.canonicalPath }.sort(),
+                  classes: compile.destinationDirectory.get().asFileTree.files.findAll {
+                      it.name.endsWith('.class')
+                  }.collect { it.canonicalPath }.sort()])
         }
+    }
+    project.tasks.withType(Jar).configureEach { jar ->
+        jar.doLast {
+            emit([kind: 'jar', artifact: jar.archiveFile.get().asFile.canonicalPath,
+                  classes: jar.source.files.findAll { it.name.endsWith('.class') }.collect {
+                      it.canonicalPath
+                  }.sort()])
+        }
+    }
+}
+gradle.taskGraph.whenReady { graph ->
+    graph.allTasks.findAll { it instanceof Test }.each { test ->
+        test.reports.junitXml.required.set(true)
     }
 }
 """
@@ -454,7 +469,12 @@ def gradle_compiler_arguments(work: Path, snapshot_name: str) -> list[str]:
 
 
 def compiler_inputs(
-    snapshot: Path, system: str, traces: Path | None = None, *, build_log: Path | None = None
+    snapshot: Path,
+    system: str,
+    traces: Path | None = None,
+    *,
+    build_log: Path | None = None,
+    artifact_paths: list[str] | None = None,
 ) -> dict:
     """Read compiler-selected paths, never infer binary names from Java filenames."""
     if system == "maven":
@@ -464,19 +484,55 @@ def compiler_inputs(
     else:
         reports = sorted(traces.glob("compile-*.json")) if traces is not None else []
     files = set()
+    values = []
+    compilations, archives = [], []
     for report in reports:
         if system == "maven" and traces is not None:
             target = traces / report.relative_to(snapshot)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(report, target)
         text = report.read_text(encoding="utf-8-sig")
-        values = text.splitlines() if system == "maven" else json.loads(text)
-        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+        if system == "maven":
+            values.extend(text.splitlines())
+            continue
+        record = json.loads(text)
+        if not isinstance(record, dict) or record.get("kind") not in {"compile", "jar"}:
             raise ValueError(f"Invalid compiler input report: {report.name}")
-        for value in values:
-            path = Path(value).resolve()
-            if path.is_relative_to(snapshot.resolve()) and path.suffix == ".java":
-                files.add(path.relative_to(snapshot.resolve()).as_posix())
+        fields = ("classes", "sources") if record["kind"] == "compile" else ("classes",)
+        if any(
+            not isinstance(record.get(field), list)
+            or any(not isinstance(value, str) for value in record[field])
+            for field in fields
+        ):
+            raise ValueError(f"Invalid compiler input report: {report.name}")
+        if record["kind"] == "compile":
+            compilations.append(record)
+        elif isinstance(record.get("artifact"), str):
+            archives.append(record)
+        else:
+            raise ValueError(f"Invalid archive input report: {report.name}")
+    if system == "gradle":
+        allowed = (
+            {(snapshot / path).resolve() for path in artifact_paths}
+            if artifact_paths is not None
+            else None
+        )
+        classes = {
+            Path(path).resolve()
+            for record in archives
+            if (allowed is None or Path(record["artifact"]).resolve() in allowed)
+            and not Path(record["artifact"]).name.endswith(
+                ("-sources.jar", "-javadoc.jar", "-tests.jar", "-test-fixtures.jar")
+            )
+            for path in record["classes"]
+        }
+        for record in compilations:
+            if classes.intersection(Path(path).resolve() for path in record["classes"]):
+                values.extend(record["sources"])
+    for value in values:
+        path = Path(value).resolve()
+        if path.is_relative_to(snapshot.resolve()) and path.suffix == ".java":
+            files.add(path.relative_to(snapshot.resolve()).as_posix())
     parsed_files = set()
     if system == "maven" and build_log is not None:
         text = build_log.read_text(encoding="utf-8", errors="replace")
@@ -594,6 +650,7 @@ class JavaRunner:
                 profile["build_system"],
                 work / f"{snapshot_name}-compiler-inputs",
                 build_log=work / f"{snapshot_name}-tests.log",
+                artifact_paths=list(inventory),
             ),
         }
 

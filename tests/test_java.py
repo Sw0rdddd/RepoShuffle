@@ -491,6 +491,82 @@ public class PathsTest {
         )
 
 
+def test_literal_java_filename_is_a_conservative_individual_source_anchor(project):
+    files = sources()
+    files["src/test/java/SourceWalk.java"] = (
+        'class SourceWalk { String observedName = "Helper.java"; }'
+    )
+    plan = build_plan(project(files), seed=42)
+    assert plan.ok, plan.to_dict()
+    assert plan.mapping["src/main/java/demo/Helper.java"] == "src/main/java/demo/Helper.java"
+    assert plan.mapping["src/main/java/demo/Main.java"] != "src/main/java/demo/Main.java"
+
+
+@pytest.mark.parametrize("already_file_based", [False, True])
+def test_maven_plugin_adaptation_preserves_crlf_and_avoids_noop_rewrites(
+    project, already_file_based
+):
+    includes = (
+        "<sourceFileIncludes><sourceFileInclude>**/*.java</sourceFileInclude></sourceFileIncludes>"
+        if already_file_based
+        else ""
+    )
+    plugin = (
+        "<plugin><artifactId>maven-javadoc-plugin</artifactId>\n<configuration>"
+        + includes
+        + "</configuration>\n</plugin>"
+    )
+    pom = POM.replace("</plugins>", plugin + "</plugins>").replace("\n", "\r\n").encode("utf-8")
+    files = sources()
+    files["pom.xml"] = pom
+    plan = build_plan(project(files), seed=42)
+    assert plan.ok, plan.to_dict()
+    result = plan.contents["pom.xml"]
+    assert b"\n" not in result.replace(b"\r\n", b"")
+    if already_file_based:
+        assert result == pom
+        assert not any(change["kind"] == "rewrite-build" for change in plan.changes)
+    else:
+        assert result != pom and b"sourceFileIncludes" in result
+
+
+def test_release_source_overlay_keeps_relative_override_identity(project, tmp_path):
+    source = project(
+        {
+            "build.gradle": 'plugins { id("java") }',
+            "src/main/java/a/Shared.java": "package a; public class Shared { public static int value() { return 1; }}",
+            "src/main/java/a/Move.java": "package a; public class Move { public static void main(String[] args) { if (Shared.value()!=2) throw new AssertionError(); }}",
+            "src/main/java9/a/Shared.java": "package a; public class Shared { public static int value() { return 2; }}",
+        }
+    )
+    plan = build_plan(source, seed=42)
+    assert plan.ok, plan.to_dict()
+    assert plan.mapping["src/main/java/a/Shared.java"] == "src/main/java/a/Shared.java"
+    assert plan.mapping["src/main/java/a/Move.java"] != "src/main/java/a/Move.java"
+    output = apply_plan(plan)
+    if not shutil.which("javac") or not shutil.which("java"):
+        pytest.skip("JDK not installed")
+    for label in ("original", "shuffled"):
+        snapshot = output / label
+        merged = tmp_path / (label + "-module")
+        shutil.copytree(snapshot / "src/main/java", merged)
+        shutil.copytree(snapshot / "src/main/java9", merged, dirs_exist_ok=True)
+        (merged / "module-info.java").write_text("module sample { exports a; }", encoding="utf-8")
+        classes = tmp_path / (label + "-classes")
+        classes.mkdir()
+        result = subprocess.run(
+            ["javac", "-d", str(classes), *map(str, merged.rglob("*.java"))],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        subprocess.run(
+            ["java", "-cp", str(classes), "a.Move"], check=True, capture_output=True, timeout=30
+        )
+
+
 def test_maven_javadoc_uses_actual_files_and_source_jar_filters_remain_effective(project, tmp_path):
     tool = os.environ.get("REPOSHUFFLE_MAVEN") or shutil.which("mvn")
     if not tool:
@@ -558,6 +634,57 @@ def test_maven_nonincremental_compilation_has_production_input_evidence(project,
         assert not any("/src/test/" in "/" + path for path in inputs["files"])
         evidence.append({"compiler_inputs": inputs})
     assert compiled_relocation(plan.mapping, *evidence)["complete"]
+
+
+def test_gradle_trace_links_custom_production_source_sets_to_selected_jars(project, tmp_path):
+    gradle = os.environ.get("REPOSHUFFLE_GRADLE") or shutil.which("gradle")
+    if not gradle:
+        pytest.skip("gradle not installed; set REPOSHUFFLE_GRADLE")
+    from scripts import evaluate as harness
+
+    files = sources("build.gradle.kts")
+    files["build.gradle.kts"] += (
+        '\nval productionExtension = sourceSets.create("extension") { java.srcDir("extension") }\ntasks.jar { from(productionExtension.output) }\ntasks.test { reports.junitXml.required.set(false) }\n'
+    )
+    files["extension/extra/Extension.java"] = "package extra; public class Extension {}"
+    plan = build_plan(project(files), seed=42, source_dirs=["src/main/java", "extension"])
+    assert plan.ok, plan.to_dict()
+    output = apply_plan(plan)
+    results = {}
+    for label in ("original", "shuffled"):
+        snapshot = output / label
+        result = subprocess.run(
+            [gradle, *harness.gradle_compiler_arguments(tmp_path, label), "clean", "test", "jar"],
+            cwd=snapshot,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        reports = list(snapshot.glob("build/test-results/*/TEST-*.xml"))
+        assert harness.junit_results(reports, 0, snapshot)["counts"] == {"passed": 1}
+        inventory = harness.jar_inventory(snapshot, ["build/libs/*.jar"])
+        assert any("extra/Extension.class" in classes for classes in inventory.values())
+        results[label] = harness.compiler_inputs(
+            snapshot,
+            "gradle",
+            tmp_path / f"{label}-compiler-inputs",
+            artifact_paths=list(inventory),
+        )
+        assert results[label]["exit"] == 0
+        assert not any("/test/" in path for path in results[label]["files"])
+        assert (
+            harness.compiler_inputs(
+                snapshot, "gradle", tmp_path / f"{label}-compiler-inputs", artifact_paths=[]
+            )["exit"]
+            == 1
+        )
+    assert harness.compiled_relocation(
+        plan.mapping,
+        {"compiler_inputs": results["original"]},
+        {"compiler_inputs": results["shuffled"]},
+    )["complete"]
 
 
 def test_gradle_test_compilation_cannot_prove_production_migration(project, tmp_path):

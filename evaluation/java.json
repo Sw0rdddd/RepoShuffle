@@ -4,7 +4,7 @@
     "url": "https://github.com/apache/commons-lang.git",
     "revision": "29ccc7665f3bc5d84155a3092ab2209a053324e6",
     "ref": "rel/commons-lang-3.17.0",
-    "env": {"JAVA_TOOL_OPTIONS": "-Djunit.jupiter.execution.parallel.enabled=false"},
+    "env": {"JAVA_TOOL_OPTIONS": "-Djunit.jupiter.execution.parallel.enabled=false", "MAVEN_ARGS": "-Dsurefire.runOrder=alphabetical -DreuseForks=false"},
     "jdk": 17,
     "build_system": "maven",
     "build_version": "3.9.9",
@@ -31,7 +31,7 @@
     "url": "https://github.com/apache/commons-codec.git",
     "revision": "965109705c5236b05011e1c45f47d991abfa521e",
     "ref": "rel/commons-codec-1.17.1",
-    "env": {"JAVA_TOOL_OPTIONS": "-Xmx6g"},
+    "env": {"JAVA_TOOL_OPTIONS": "-Xmx8g"},
     "jdk": 17,
     "build_system": "maven",
     "build_version": "3.9.9",
@@ -88,7 +88,7 @@
     "build_system": "gradle",
     "build_version": "8.5",
     "source_dirs": ["mockito-core/src/main/java"],
-    "tasks": ["clean", ":mockito-core:test", ":mockito-core:jar"],
+    "tasks": ["--max-workers=1", "clean", ":mockito-core:test", ":mockito-core:jar"],
     "reports": ["mockito-core/build/test-results/test/TEST-*.xml"],
     "artifacts": ["mockito-core/build/libs/*.jar"]
   },
@@ -103,7 +103,7 @@
     "build_version": "8.3-rc-3",
     "source_dirs": ["caffeine/src/main/java"],
     "tasks": ["--max-workers=2", "clean", ":caffeine:test", ":caffeine:jar"],
-    "reports": ["caffeine/build/test-results/*/TEST-*.xml"],
+    "reports": ["caffeine/build/reports/*/results/TEST-*.xml"],
     "artifacts": ["caffeine/build/libs/*.jar"]
   },
   "junit5": {
@@ -116,7 +116,7 @@
     "build_version": "8.9",
     "source_dirs": ["junit-platform-commons/src/main/java", "junit-jupiter-api/src/main/java"],
     "tasks": ["clean", ":junit-platform-commons:test", ":junit-platform-commons:jar", ":junit-jupiter-api:test", ":junit-jupiter-api:jar"],
-    "reports": ["junit-platform-commons/build/test-results/test/TEST-*.xml", "junit-jupiter-api/build/test-results/test/TEST-*.xml"],
+    "reports": ["junit-platform-commons/build/test-results/*/TEST-*.xml", "junit-jupiter-api/build/test-results/*/TEST-*.xml"],
     "artifacts": ["junit-platform-commons/build/libs/*.jar", "junit-jupiter-api/build/libs/*.jar"]
   },
   "spotbugs": {

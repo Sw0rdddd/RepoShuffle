@@ -447,8 +447,22 @@ def test_compiler_inputs_record_actual_paths_not_class_filename_guesses(tmp_path
         payload = str(source.resolve()) + "\n"
     else:
         report = tmp_path / "traces/compile-one.json"
-        payload = json.dumps([str(source.resolve())])
-    report.parent.mkdir(parents=True)
+        emitted = str(snapshot / "build/classes/java/extra/EntirelyDifferentBinaryName.class")
+        payload = json.dumps(
+            {"kind": "compile", "sources": [str(source.resolve())], "classes": [emitted]}
+        )
+        report.parent.mkdir(parents=True)
+        (report.parent / "compile-archive.json").write_text(
+            json.dumps(
+                {
+                    "kind": "jar",
+                    "artifact": str(snapshot / "build/libs/demo.jar"),
+                    "classes": [emitted],
+                }
+            ),
+            encoding="utf-8",
+        )
+    report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(payload, encoding="utf-8")
     assert harness.compiler_inputs(snapshot, system, tmp_path / "traces")["files"] == [
         "src/main/java/UnexpectedFilename.java"
@@ -539,6 +553,46 @@ def test_java_profiles_pin_ten_real_repositories_and_explicit_build_scopes():
         assert not any(
             "skip" in task.lower() or task in {"-x", "--exclude-task"} for task in profile["tasks"]
         )
+
+
+@pytest.mark.parametrize("selected", ["", "java/caffeine", "unknown"])
+def test_workflow_seed_shards_preserve_complete_profile_coverage(tmp_path, selected):
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    root = Path(__file__).parents[1]
+    workflow = (root / ".github/workflows/compatibility.yml").read_text(encoding="utf-8")
+    program = textwrap.dedent(
+        workflow.split("python - <<'PY'\n", 1)[1].split("\n          PY", 1)[0]
+    )
+    output = tmp_path / "matrix.txt"
+    result = subprocess.run(
+        [sys.executable, "-c", program],
+        cwd=root,
+        env={**os.environ, "SELECTED_PROJECTS": selected, "GITHUB_OUTPUT": str(output)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if selected == "unknown":
+        assert result.returncode != 0 and "Unknown profiles" in result.stderr
+        return
+    assert result.returncode == 0, result.stderr
+    entries = json.loads(output.read_text(encoding="utf-8").partition("=")[2])
+    coverage = {}
+    for entry in entries:
+        key = entry["language"] + "/" + entry["project"]
+        coverage.setdefault(key, []).extend(entry["seeds"])
+        modes = 1 if entry["language"] == "java" else 2
+        assert entry["timeout"] * (1 + modes * len(entry["seeds"])) <= 330 * 60
+    assert all(sorted(seeds) == [42, 123] for seeds in coverage.values())
+    assert len(coverage) == (1 if selected else 20)
+    if selected:
+        assert list(coverage) == [selected]
+        assert len(entries) == 2
 
 
 def test_comparison_does_not_confuse_equal_counts_with_equal_nodes():

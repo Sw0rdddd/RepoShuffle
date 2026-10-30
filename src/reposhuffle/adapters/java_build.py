@@ -29,8 +29,21 @@ def adapt_maven_plugins(plan: Plan, ant_match) -> None:
         if not units:
             continue
         original = plan.contents[record.path]
+        pairs = []
+        for unit in units:
+            root = PurePosixPath(unit.root)
+            for source in plan.inspection.files:
+                path = PurePosixPath(source.path)
+                if path.is_relative_to(root):
+                    pairs.append(
+                        (
+                            source.path,
+                            path.relative_to(root).as_posix(),
+                            PurePosixPath(plan.mapping[source.path]).relative_to(root).as_posix(),
+                        )
+                    )
 
-        def adapt(match, record=record, units=units):
+        def adapt(match, record=record, pairs=pairs):
             data = match[0]
             if data.startswith(b"<!"):
                 return data
@@ -51,9 +64,11 @@ def adapt_maven_plugins(plan: Plan, ant_match) -> None:
             artifact = plugin.findtext("artifactId")
             if artifact not in {"maven-javadoc-plugin", "maven-source-plugin"}:
                 return data
+            changed = False
             configuration = plugin.find("configuration")
             if configuration is None and artifact == "maven-javadoc-plugin":
                 configuration = ET.SubElement(plugin, "configuration")
+                changed = True
             configurations = (
                 [configuration] if configuration is not None else []
             ) + plugin.findall("executions/execution/configuration")
@@ -71,24 +86,19 @@ def adapt_maven_plugins(plan: Plan, ant_match) -> None:
                         if not isinstance(item.tag, str) or not item.text:
                             continue
                         before = item.text.strip()
+                        if not any(
+                            ant_match(old, before) != ant_match(new, before)
+                            for _, old, new in pairs
+                        ):
+                            continue
                         after = before if before.startswith("**/") else "**/" + before
-                        for unit in units:
-                            root = PurePosixPath(unit.root)
-                            for source in plan.inspection.files:
-                                path = PurePosixPath(source.path)
-                                if not path.is_relative_to(root):
-                                    continue
-                                old = path.relative_to(root).as_posix()
-                                new = (
-                                    PurePosixPath(plan.mapping[source.path])
-                                    .relative_to(root)
-                                    .as_posix()
+                        for path, old, new in pairs:
+                            if ant_match(old, before) != ant_match(new, after):
+                                raise ValueError(
+                                    f"{record.path}: source plugin filter cannot preserve selection for {path}"
                                 )
-                                if ant_match(old, before) != ant_match(new, after):
-                                    raise ValueError(
-                                        f"{record.path}: source plugin filter cannot preserve selection for {source.path}"
-                                    )
                         item.text = after
+                        changed = True
                 if artifact == "maven-javadoc-plugin" and config.find("sourceFileIncludes") is None:
                     if any(
                         config.findtext(name, "").strip()
@@ -105,7 +115,11 @@ def adapt_maven_plugins(plan: Plan, ant_match) -> None:
                     else:
                         includes = ET.SubElement(config, "sourceFileIncludes")
                         ET.SubElement(includes, "sourceFileInclude").text = "**/*.java"
-            return ET.tostring(plugin, encoding="utf-8")
+                        changed = True
+            if not changed:
+                return data
+            rendered = ET.tostring(plugin, encoding="utf-8")
+            return rendered.replace(b"\n", b"\r\n") if b"\r\n" in data else rendered
 
         rewritten = _PLUGIN.sub(adapt, original)
         if rewritten != original:

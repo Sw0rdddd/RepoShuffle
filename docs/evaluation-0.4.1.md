@@ -42,3 +42,15 @@ Java 成功的是 Jackson Core、Mockito 的双平台，以及 Commons Codec 的
 这些增强完成后，本地完整工具测试 **306 通过、1 跳过**（Windows 符号链接权限），包含七项真实 Maven/Gradle 构建用例、字面源码访问的双版编译运行、真实 Git 元数据及超时子进程清理。Ruff 检查/格式检查（46 个文件）、sdist/wheel、隔离安装及生成 Python 独立运行验证通过；70 个本地文档链接/锚点、四列示例及历史记录保留检查通过。工作流矩阵验证默认二十 profile、定点选择、超时预算和未知项目拒绝。
 
 这些增强的远端复验尚未记录为通过；以新提交的 Actions 为准，不沿用首轮或历史通过数。
+
+## 第二轮 Actions 与后续修复
+
+提交 `afce126` 的 [checks #40956275719](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/40956275719) 八项通过；[完整矩阵 #40956275308](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/40956275308) 已结束：Python **20/20**，Java **8/20** 通过、11 失败、1 取消，合计 **28/40** 成功，main 仍未合并。
+
+Java 通过项为 jsoup/Jackson Core 双平台，以及 Gson、Mockito、Commons Lang 的 Linux 和 Commons Codec 的 Windows。剩余证据包括：Gson Windows 的 POM 换行格式、JUnit5 模块源码覆盖合并重复类、Commons IO 两项文件遍历深度断言、Commons Lang Windows 的真实跳过差异、Mockito Windows 一项时间敏感失败、Codec Linux 原版堆不足。SpotBugs 两版测试和类清单一致，但 GUI 生产 source set 的 78 个迁移文件未被仅跟踪 main 的采集器记录，仍按证据缺失判失败。Caffeine Windows 原版异步测试超时；Linux 对照任务达到六小时上限取消，未得到完整结果。另确认 Caffeine 上游 XML 实际位于各任务的 `build/reports/*/results`，前一配置未收集到，旧空报告不补写为有效结果。
+
+后续改动分别处理插件无操作改写/CRLF、个别字面文件名及生产版本覆盖锚点、按选中生产 JAR 实际 class 输入关联 JavaCompile 证据，并启用调度中 Test 任务的 XML 报告。测试编译反例仍要求被拒绝；不依靠冻结整个实现区或放宽节点比较。环境调整保持原版/转换版一致；按时间预算拆分长任务 seed，各 seed 保留完整原测试范围。新改动的本地及远端复验结果另行记录，不沿用上述通过数。
+
+本轮本地完整工具测试 **314 通过、1 跳过**（Windows 符号链接权限），包含八项 Maven/Gradle 受控构建用例。新增文件名锚点、两项 CRLF/无操作及版本覆盖回归，在内存切回 `afce126` 算法时四项均失败，恢复当前实现后通过；版本覆盖双版均以 javac 编译执行。自定义生产 source set 确实进入 JAR，采集器记录其源码；未选中 JAR 时拒绝证据，测试编译反例仍未获误认。原先关闭的 Gradle XML 报告也在受控工程中采集到真实测试结果。工作流回归核对二十 profile、两个 seed 完整覆盖、长任务预算和未知选择拒绝。
+
+Ruff 检查/格式检查、sdist → wheel 构建、隔离安装和两种 Adapter 发布验证通过；生成 Python 可独立运行。70 个文档链接/锚点、四列示例及历史记录保留检查通过。本轮远端复验尚未记录为通过，仍不合并 main。
