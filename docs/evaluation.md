@@ -16,7 +16,7 @@ CI 使用 Windows/Linux、seed=42/123。推送 main、每周一北京时间 00:0
 
 ## 当前对照规则与缺口
 
-1. 校验仓库固定提交，拒绝已修改的 tracked 文件；新克隆保存仓库本地 `core.autocrlf=false`，子模块初始化使用相同设置并遵守上游 `.gitattributes`，不修改全局 Git 配置或夹具；生成 original/shuffled 配对快照。
+1. 校验仓库固定提交，拒绝已修改的 tracked 文件；新克隆默认保存仓库本地 `core.autocrlf=false`，profile 可显式声明 `checkout_eol=native` 使用平台原生换行；子模块初始化使用相同设置，均遵守上游 `.gitattributes`，不修改全局 Git 配置或夹具；生成 original/shuffled 配对快照。
 2. 原版与转换版使用相同配置、依赖、构建/测试命令和上游断言。没有失败节点豁免，也不改上游断言或取消检查。
 3. 比较 JUnit 节点、重复次数和结果，拒绝新增、缺失、变化及新增失败。Java 报告带模块/任务目录身份；非空报告不等于证明收集了所有预期测试。
 4. Python 可执行 wheel 构建、隔离安装及导入检查。Java 要求非空 JAR 类名清单且两版一致，并要求每个迁移 Java 文件在两版都出现在生产编译输入中。Maven 读取 compile/inputFiles.lst，并用生产 compile 阶段的 javac 文件对象诊断补足非增量编译证据，不从 testCompile/Javadoc 取证；Gradle 用临时 init script 记录成功 JavaCompile 的源码和 class 输出，并按选中生产 JAR 的实际 class 输入关联编译任务；不局限于 main，也不把仅有测试编译的文件算作生产迁移。禁用守护进程、构建/配置缓存并强制重跑。缺少编译证据即失败，不按 Java 文件名猜 class 名；不比较 class 字节，也不声称由此证明所有运行行为等价。

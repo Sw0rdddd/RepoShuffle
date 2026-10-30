@@ -180,7 +180,9 @@ def test_evaluation_timeout_terminates_child_processes(tmp_path):
     assert not leaked.exists()
 
 
-def test_cloning_preserves_committed_lf_despite_host_autocrlf(tmp_path, monkeypatch):
+@pytest.mark.parametrize("checkout_eol", [None, "lf", "native"])
+def test_checkout_policy_overrides_host_autocrlf(tmp_path, monkeypatch, checkout_eol):
+    import os
     import subprocess
     from types import SimpleNamespace
 
@@ -215,33 +217,49 @@ def test_cloning_preserves_committed_lf_despite_host_autocrlf(tmp_path, monkeypa
     output = tmp_path / "results"
     output.mkdir()
     args = SimpleNamespace(repos_root=tmp_path / "sources", output=output, clone=True, timeout=30)
-    harness.evaluate("demo", {"url": str(upstream), "revision": revision, "tests": []}, args)
+    profile = {"url": str(upstream), "revision": revision, "tests": []}
+    if checkout_eol is not None:
+        profile["checkout_eol"] = checkout_eol
+    harness.evaluate("demo", profile, args)
     clone = args.repos_root / "demo"
-    assert (clone / "fixture.csv").read_bytes() == data
+    native = checkout_eol == "native" and os.name == "nt"
+    assert (clone / "fixture.csv").read_bytes() == (
+        data.replace(b"\n", b"\r\n") if native else data
+    )
     assert (
         subprocess.check_output(
             ["git", "-C", str(clone), "config", "--get", "core.autocrlf"], text=True
         ).strip()
-        == "false"
+        == str(native).lower()
     )
 
 
-def test_initialize_submodules_only_when_declared(tmp_path, monkeypatch):
+def test_checkout_policy_rejects_unknown_configuration(tmp_path):
+    profiles = tmp_path / "profiles.json"
+    profiles.write_text(json.dumps({"demo": {"checkout_eol": "unknown"}}), encoding="utf-8")
+    with pytest.raises(SystemExit) as error:
+        harness.main(["--profiles", str(profiles), "--output", str(tmp_path / "output")])
+    assert error.value.code == 2
+    assert not (tmp_path / "output").exists()
+
+
+@pytest.mark.parametrize("native_eol", [False, True])
+def test_initialize_submodules_only_when_declared(tmp_path, monkeypatch, native_eol):
     calls = []
     monkeypatch.setattr(
         harness.subprocess, "run", lambda *args, **kwargs: calls.append((args, kwargs))
     )
-    harness.initialize_submodules(tmp_path, 30)
+    harness.initialize_submodules(tmp_path, 30, native_eol=native_eol)
     assert not calls
     (tmp_path / ".gitmodules").write_text('[submodule "fixtures"]\n', encoding="utf-8")
-    harness.initialize_submodules(tmp_path, 30)
+    harness.initialize_submodules(tmp_path, 30, native_eol=native_eol)
     assert calls == [
         (
             (
                 [
                     "git",
                     "-c",
-                    "core.autocrlf=false",
+                    f"core.autocrlf={str(native_eol).lower()}",
                     "-C",
                     str(tmp_path),
                     "submodule",

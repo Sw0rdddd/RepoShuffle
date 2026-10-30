@@ -45,6 +45,7 @@
     "url": "https://github.com/google/gson.git",
     "revision": "828a97be0f8d58108b140b77df8dc76b657f4a87",
     "ref": "gson-parent-2.11.0",
+    "checkout_eol": "native",
     "jdk": 17,
     "build_system": "maven",
     "build_version": "3.9.9",

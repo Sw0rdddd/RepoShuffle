@@ -154,13 +154,13 @@ def python_in(environment: Path) -> Path:
     return environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
-def initialize_submodules(source: Path, timeout: int) -> None:
+def initialize_submodules(source: Path, timeout: int, *, native_eol: bool = False) -> None:
     if (source / ".gitmodules").is_file():
         subprocess.run(
             [
                 "git",
                 "-c",
-                "core.autocrlf=false",
+                f"core.autocrlf={str(native_eol).lower()}",
                 "-C",
                 str(source),
                 "submodule",
@@ -670,6 +670,7 @@ _RUNNERS = {"python": PythonRunner, "java": JavaRunner}
 
 def evaluate(name: str, profile: dict, args) -> dict:
     source = (args.repos_root / name).resolve()
+    native_eol = profile.get("checkout_eol", "lf") == "native" and os.name == "nt"
     if not source.exists() and args.clone:
         source.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(
@@ -678,7 +679,7 @@ def evaluate(name: str, profile: dict, args) -> dict:
                 "clone",
                 "--no-checkout",
                 "--config",
-                "core.autocrlf=false",
+                f"core.autocrlf={str(native_eol).lower()}",
                 profile["url"],
                 str(source),
             ],
@@ -699,7 +700,7 @@ def evaluate(name: str, profile: dict, args) -> dict:
         ["git", "-C", str(source), "status", "--porcelain", "--untracked-files=no"], text=True
     ).strip():
         raise ValueError(f"{name}: tracked upstream files are modified")
-    initialize_submodules(source, args.timeout)
+    initialize_submodules(source, args.timeout, native_eol=native_eol)
     work = args.output / name
     work.mkdir()
     language = profile.get("language", "python")
@@ -891,6 +892,8 @@ def main(argv=None) -> int:
         if name in {".", ".."} or re.fullmatch(r"[\w.-]+", name) is None:
             parser.error("Unsafe project name")
         profile = profiles[name]
+        if profile.get("checkout_eol", "lf") not in ("lf", "native"):
+            parser.error(f"checkout_eol must be lf or native: {name}")
         if not isinstance(profile.get("vcs", False), bool):
             parser.error(f"vcs must be a boolean: {name}")
         if profile.get("language") == "java":
