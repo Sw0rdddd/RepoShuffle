@@ -157,7 +157,17 @@ def python_in(environment: Path) -> Path:
 def initialize_submodules(source: Path, timeout: int) -> None:
     if (source / ".gitmodules").is_file():
         subprocess.run(
-            ["git", "-C", str(source), "submodule", "update", "--init", "--recursive"],
+            [
+                "git",
+                "-c",
+                "core.autocrlf=false",
+                "-C",
+                str(source),
+                "submodule",
+                "update",
+                "--init",
+                "--recursive",
+            ],
             check=True,
             timeout=timeout,
         )
@@ -663,7 +673,15 @@ def evaluate(name: str, profile: dict, args) -> dict:
     if not source.exists() and args.clone:
         source.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(
-            ["git", "clone", "--no-checkout", profile["url"], str(source)],
+            [
+                "git",
+                "clone",
+                "--no-checkout",
+                "--config",
+                "core.autocrlf=false",
+                profile["url"],
+                str(source),
+            ],
             check=True,
             timeout=args.timeout,
         )

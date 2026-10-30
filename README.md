@@ -2,7 +2,7 @@
 
 **Reshape Python and Java source trees. Preserve logical identities.**
 
-![Version](https://img.shields.io/badge/version-0.4.1-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-0.5.0-2563eb?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10–3.13-3776ab?style=flat-square)
 ![Interface](https://img.shields.io/badge/interface-CLI%20%2F%20API-475569?style=flat-square)
 
@@ -201,7 +201,7 @@ The API also accepts `subproject="services/api"`. `plan.compatibility` summarize
 
 Conversion runs Python static compilation or Java source-byte/boundary checks, plus shared target and inventory checks. **It does not prove functional equivalence, install dependencies, or run target tests.** File and traceback paths change; source scanning, custom loaders, special builds, and type checking may need adaptation. Symbolic links are not automatically followed. This is not source encryption.
 
-**0.4.1** fixes the four review findings and requires strict production-compiler input coverage for relocated Java sources. See the [local validation record](docs/evaluation-0.4.1.md); full real-repository results belong to Actions runs for the corresponding commit, not historical passes. Methods and limits are maintained in [evaluation](docs/evaluation.md), with fix tracking in [review](docs/review.md) (Chinese).
+**0.5.0** integrates the Java adapter and strict production-compiler input coverage. See the [0.5.0 validation record](docs/evaluation-0.5.0.md) and [test-set changes and unsupported scenarios](docs/limitations.md#真实仓库替换与未覆盖场景); replacing repositories does not establish compatibility with the removed projects. Full real-repository results belong to Actions runs for the corresponding commit, not historical passes. Methods and limits are maintained in [evaluation](docs/evaluation.md), with fix tracking in [review](docs/review.md) (Chinese).
 
 ## Development
 

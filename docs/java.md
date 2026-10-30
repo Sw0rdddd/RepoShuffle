@@ -1,6 +1,6 @@
 # Java 使用指南
 
-首期提供 random 物理迁移，不支持 flat。0.4.1 对[四项审查问题](review.md)增加修复与回归；这不构成对所有 Maven/Gradle 工程的完整兼容保证。
+0.5.0 提供 random 物理迁移，不支持 flat，沿用对[四项审查问题](review.md)的修复与严格生产编译输入覆盖。十仓库测试集调整及未覆盖场景见[局限性](limitations.md#真实仓库替换与未覆盖场景)；这不构成对所有 Maven/Gradle 工程的完整兼容保证。
 
 ```bash
 reposhuffle inspect ./demo --language java

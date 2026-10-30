@@ -180,6 +180,52 @@ def test_evaluation_timeout_terminates_child_processes(tmp_path):
     assert not leaked.exists()
 
 
+def test_cloning_preserves_committed_lf_despite_host_autocrlf(tmp_path, monkeypatch):
+    import subprocess
+    from types import SimpleNamespace
+
+    upstream = tmp_path / "upstream"
+    subprocess.run(["git", "init", "-q", str(upstream)], check=True)
+    data = b"first\nsecond\n"
+    (upstream / "fixture.csv").write_bytes(data)
+    subprocess.run(["git", "-C", str(upstream), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(upstream),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+        check=True,
+    )
+    revision = subprocess.check_output(
+        ["git", "-C", str(upstream), "rev-parse", "HEAD"], text=True
+    ).strip()
+    config = tmp_path / "global.gitconfig"
+    config.write_text("[core]\n    autocrlf = true\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setattr(harness.PythonRunner, "setup", lambda *args: {"exit": 1})
+    output = tmp_path / "results"
+    output.mkdir()
+    args = SimpleNamespace(repos_root=tmp_path / "sources", output=output, clone=True, timeout=30)
+    harness.evaluate("demo", {"url": str(upstream), "revision": revision, "tests": []}, args)
+    clone = args.repos_root / "demo"
+    assert (clone / "fixture.csv").read_bytes() == data
+    assert (
+        subprocess.check_output(
+            ["git", "-C", str(clone), "config", "--get", "core.autocrlf"], text=True
+        ).strip()
+        == "false"
+    )
+
+
 def test_initialize_submodules_only_when_declared(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(
@@ -191,7 +237,19 @@ def test_initialize_submodules_only_when_declared(tmp_path, monkeypatch):
     harness.initialize_submodules(tmp_path, 30)
     assert calls == [
         (
-            (["git", "-C", str(tmp_path), "submodule", "update", "--init", "--recursive"],),
+            (
+                [
+                    "git",
+                    "-c",
+                    "core.autocrlf=false",
+                    "-C",
+                    str(tmp_path),
+                    "submodule",
+                    "update",
+                    "--init",
+                    "--recursive",
+                ],
+            ),
             {"check": True, "timeout": 30},
         )
     ]

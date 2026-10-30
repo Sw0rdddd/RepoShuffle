@@ -105,17 +105,17 @@
     "reports": ["target/surefire-reports/TEST-*.xml", "target/failsafe-reports/TEST-*.xml"],
     "artifacts": ["target/*.jar"]
   },
-  "json-java": {
+  "commons-text": {
     "language": "java",
-    "url": "https://github.com/stleary/JSON-java.git",
-    "revision": "f9b5587c87aaf02e4a5ed1991d48d6c05993624a",
-    "ref": "20240303",
+    "url": "https://github.com/apache/commons-text.git",
+    "revision": "2c2d0818b0540c59f055f5174db51d0574af46da",
+    "ref": "rel/commons-text-1.12.0",
     "jdk": 17,
     "build_system": "maven",
     "build_version": "3.9.9",
     "source_dirs": ["src/main/java"],
-    "tasks": ["clean", "package"],
-    "reports": ["target/surefire-reports/TEST-*.xml"],
+    "tasks": ["clean", "verify"],
+    "reports": ["target/surefire-reports/TEST-*.xml", "target/failsafe-reports/TEST-*.xml"],
     "artifacts": ["target/*.jar"]
   },
   "spotbugs": {

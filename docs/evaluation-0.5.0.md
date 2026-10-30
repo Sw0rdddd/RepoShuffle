@@ -1,0 +1,25 @@
+# 0.5.0 验证记录
+
+0.5.0 整备中，未以完整真实仓库通过或已合并 main 发布。布局版本 5、清单 schema 4 不变；[0.4.1 记录](evaluation-0.4.1.md)及更早结果原样保留，不改成 0.5.0 复测。
+
+## 范围与变更
+
+- Java 沿用共享布局和 Adapter，不改包名、源码字节或上游断言；仍严格核对完整测试节点、结果、JAR 类清单及逐个迁移文件的生产编译输入。
+- 唯一 Java 公开配置保持十仓库：Commons Lang、CSV、Codec、CLI、Text，Gson、jsoup、Jackson Core、Mockito、SpotBugs。八个 Maven、两个 Gradle 仓库；[替换原因与未覆盖能力](limitations.md#真实仓库替换与未覆盖场景)属于验收范围的一部分。
+- 新克隆显式保存仓库本地 `core.autocrlf=false`；子模块初始化也使用该设置，避免宿主全局配置在 checkout 时改写已提交测试夹具。继续遵守上游 `.gitattributes`，不修改 Git 全局配置、不回写夹具、不更改断言。
+- Windows CSV 原版在上一配置运行中因 LF/CRLF 差异失败；新的受控 Git 回归先实际复现宿主 `autocrlf=true` 将 LF 变为 CRLF，再检查固定提交的 checkout 字节。不将环境修正前的失败改写为成功。
+
+## 本地验证
+
+Windows / Python 3.13.13 / JDK 25.0.2；受控构建使用 Maven 3.9.9、Gradle 9.1.0。本地未运行真实仓库套件。
+
+- 全量工具测试 **315 通过、1 跳过**（Windows 符号链接权限），包括八项 Maven/Gradle 受控构建用例。
+- Git 换行回归在修复前实际失败（LF 被变成 CRLF），修复后在完整测试中通过；子模块参数、版本常量及相关断言同步验证。
+- Ruff 检查/格式检查、sdist → wheel 构建、隔离安装、两种 Adapter 发布及生成 Python 独立运行验证通过。
+- 80 个本地文档链接/锚点、双语 README 四列示例、历史记录保留及 wheel 与当前源文件/隔离安装字节一致检查通过。
+
+## 远端与合并门槛
+
+0.4.1 的 [f644789 定点矩阵](https://github.com/Sw0rdddd/RepoShuffle/actions/runs/41019054633)中，Commons CLI 双平台及 Commons CSV Linux 通过；CSV Windows 未转换原版因换行差异失败。JSON-java 双平台在构建前被双 Maven/Gradle 标识歧义拒绝，未执行上游测试，因此不作为兼容通过；该候选撤换为 Commons Text，不建立备选配置组。
+
+0.5.0 的新完整矩阵尚未记录为通过。仅当十个 Java 仓库双平台、两个 seed 完整通过，工具检查及 Python 回归也无阻塞，才合并 main；之后仍检查 main 自动触发的 Actions。

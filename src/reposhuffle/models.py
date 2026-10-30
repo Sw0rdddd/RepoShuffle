@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-VERSION = "0.4.1"
+VERSION = "0.5.0"
 
 
 @dataclass(frozen=True)
