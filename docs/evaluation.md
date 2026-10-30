@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-0.5.0 的[验证记录](evaluation-0.5.0.md)记录当前整备与验收状态；0.4.1 的[历史修复验证](evaluation-0.4.1.md)覆盖四项审查问题与严格的生产编译输入覆盖，修复及原始反例见[审查记录](review.md)。完整真实仓库对照结果以相应提交的 [Actions](https://github.com/Sw0rdddd/RepoShuffle/actions/workflows/compatibility.yml) 为准，不将尚未执行的步骤写成通过。0.4.0 的[实施阶段记录](evaluation-0.4.0.md)原样保留，不代表新版本复测。
+0.5.0 的[验证记录](evaluation-0.5.0.md)记录实际验收结果与选集边界；0.4.1 的[历史修复验证](evaluation-0.4.1.md)覆盖四项审查问题与严格的生产编译输入覆盖，修复及原始反例见[审查记录](review.md)。完整真实仓库对照结果以相应提交的 [Actions](https://github.com/Sw0rdddd/RepoShuffle/actions/workflows/compatibility.yml) 为准，不将尚未执行的步骤写成通过。0.4.0 的[实施阶段记录](evaluation-0.4.0.md)原样保留，不代表新版本复测。
 
 下方[历史记录](#历史验证记录)保留 0.3.4 及更早的原始版本与结果，其中远端通过对应 0.3.3，不覆盖 0.4.0/0.4.1。方法、配置和工作流存在，不表示已经执行。
 
